@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest something sourcebeam should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation you're in, such as a class, a code review or a demo, and where sourcebeam falls short.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+    validations:
+      required: true

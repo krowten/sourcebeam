@@ -1,0 +1,207 @@
+{
+  "name": "sourcebeam-vscode",
+  "displayName": "Sourcebeam",
+  "description": "Live code sharing without the screen share: broadcast your project to a read-only browser viewer for teaching, mentoring, code walkthroughs and pair programming.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "krowten",
+  "author": {
+    "name": "krowten",
+    "email": "me@krowten.dev",
+    "url": "https://krowten.dev"
+  },
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/krowten/sourcebeam",
+    "directory": "extensions/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/krowten/sourcebeam/issues"
+  },
+  "homepage": "https://github.com/krowten/sourcebeam#readme",
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "Sourcebeam only reads files through the same .gitignore/policy filters it already applies before broadcasting, and never executes anything from the workspace."
+    }
+  },
+  "categories": ["Education"],
+  "keywords": [
+    "code sharing",
+    "live share",
+    "live coding",
+    "read-only",
+    "teaching",
+    "mentoring",
+    "code review",
+    "pair programming",
+    "classroom",
+    "code walkthrough",
+    "code with me",
+    "collaboration",
+    "screen sharing alternative",
+    "workshop",
+    "presentation"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sourcebeam.start",
+        "category": "Sourcebeam",
+        "title": "Start Broadcasting",
+        "icon": "$(play)"
+      },
+      {
+        "command": "sourcebeam.stop",
+        "category": "Sourcebeam",
+        "title": "Stop Broadcasting",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "sourcebeam.setToken",
+        "category": "Sourcebeam",
+        "title": "Set Host Token"
+      },
+      {
+        "command": "sourcebeam.copyInvite",
+        "category": "Sourcebeam",
+        "title": "Copy Invite Link",
+        "icon": "$(link)"
+      },
+      {
+        "command": "sourcebeam.revokeInvites",
+        "category": "Sourcebeam",
+        "title": "Revoke Invite Links",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "sourcebeam.deleteProject",
+        "category": "Sourcebeam",
+        "title": "Delete Project"
+      },
+      {
+        "command": "sourcebeam.toggle",
+        "category": "Sourcebeam",
+        "title": "Toggle Broadcasting"
+      },
+      {
+        "command": "sourcebeam.pickProject",
+        "category": "Sourcebeam",
+        "title": "Set Project"
+      },
+      {
+        "command": "sourcebeam.pickServer",
+        "category": "Sourcebeam",
+        "title": "Set Server URL"
+      },
+      {
+        "command": "sourcebeam.moreActions",
+        "category": "Sourcebeam",
+        "title": "Settings",
+        "icon": "$(settings-gear)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "sourcebeam.toggle",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "sourcebeam.start",
+          "when": "view == sourcebeam.view && !sourcebeam.running",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sourcebeam.stop",
+          "when": "view == sourcebeam.view && sourcebeam.running",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sourcebeam.copyInvite",
+          "when": "view == sourcebeam.view",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sourcebeam.revokeInvites",
+          "when": "view == sourcebeam.view",
+          "group": "navigation@3"
+        },
+        {
+          "command": "sourcebeam.moreActions",
+          "when": "view == sourcebeam.view",
+          "group": "navigation@4"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sourcebeam-sidebar",
+          "title": "Sourcebeam",
+          "icon": "media/sidebar-icon.png"
+        }
+      ]
+    },
+    "views": {
+      "sourcebeam-sidebar": [
+        {
+          "id": "sourcebeam.view",
+          "name": "Sourcebeam"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Sourcebeam",
+      "properties": {
+        "sourcebeam.serverUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "description": "Sourcebeam server URL, e.g. wss://sourcebeam.<sub>.workers.dev. One value for every workspace (User settings only)."
+        },
+        "sourcebeam.project": {
+          "type": "string",
+          "default": "",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+          "scope": "window",
+          "description": "Project id: lowercase letters, digits, hyphens, underscores; can't start with a hyphen or underscore. Per-workspace — each folder you open keeps its own. Defaults to the folder's name, sanitized, if left unset."
+        },
+        "sourcebeam.inviteTtlHours": {
+          "type": "number",
+          "default": 6,
+          "scope": "window",
+          "description": "Lifetime of a minted invite link, in hours. Per-workspace only (Workspace settings); a value in User settings is ignored. 6 unless set."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "bun build ./src/extension.ts --outdir ./dist --target node --format cjs --external vscode",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "bun test --path-ignore-patterns 'tests/integration/**'",
+    "test:integration": "bun tests/integration/runner.ts",
+    "package": "bun run build && bunx @vscode/vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@sourcebeam/protocol": "workspace:*",
+    "ignore": "^7.0.9"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.5.1",
+    "@types/vscode": "^1.101.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "mocha": "^12.0.1",
+    "ovsx": "^1.2.0"
+  }
+}

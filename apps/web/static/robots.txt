@@ -1,0 +1,3 @@
+# The viewer is invite-gated; there is nothing useful to crawl.
+User-agent: *
+Disallow: /

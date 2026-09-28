@@ -1,0 +1,86 @@
+<idea-plugin>
+	<id>com.github.krowten.sourcebeam</id>
+	<name>Sourcebeam</name>
+	<vendor email="me@krowten.dev" url="https://github.com/krowten/sourcebeam">krowten</vendor>
+
+	<description><![CDATA[
+		<p>Live code sharing from your IDE to a read-only browser page. This plugin broadcasts the open
+		project to a <a href="https://github.com/krowten/sourcebeam">sourcebeam</a> viewer session:
+		anyone with an invite link watches the code change live, with no editing and no code
+		execution.</p>
+		<p>Think of it as a lightweight, read-only alternative to Code With Me for the cases where the
+		audience only needs to watch: teaching, mentoring, code walkthroughs, demos and review
+		sessions. Viewers need nothing but a link. The server runs on your own Cloudflare account;
+		this plugin is the host side.</p>
+		<ul>
+			<li>Every text file the project's <code>.gitignore</code> doesn't exclude is sent, up to a
+			server-published size cap; binaries are skipped.</li>
+			<li><code>.gitignore</code> decides what stays private, <code>.env</code> files and keys
+			included; nothing under <code>.git/</code> is ever sent.</li>
+			<li>The host token lives in the IDE password safe, never in a settings file.</li>
+		</ul>
+	]]></description>
+
+	<depends>com.intellij.modules.platform</depends>
+
+	<extensions defaultExtensionNs="com.intellij">
+		<applicationService serviceImplementation="com.github.krowten.sourcebeam.SourcebeamAppSettings"/>
+		<projectService serviceImplementation="com.github.krowten.sourcebeam.SourcebeamSettings"/>
+		<projectService serviceImplementation="com.github.krowten.sourcebeam.BroadcastService"/>
+		<projectConfigurable
+			parentId="tools"
+			instance="com.github.krowten.sourcebeam.SourcebeamConfigurable"
+			id="com.github.krowten.sourcebeam.settings"
+			displayName="Sourcebeam"/>
+		<statusBarWidgetFactory
+			id="SourcebeamStatusBar"
+			implementation="com.github.krowten.sourcebeam.SourcebeamStatusBarWidgetFactory"/>
+		<notificationGroup id="Sourcebeam" displayType="BALLOON"/>
+		<toolWindow id="Sourcebeam"
+			anchor="left"
+			icon="/icons/sourcebeamToolWindow.svg"
+			factoryClass="com.github.krowten.sourcebeam.SourcebeamToolWindowFactory"/>
+	</extensions>
+
+	<actions>
+		<group id="Sourcebeam.Menu" text="Sourcebeam" popup="true">
+			<add-to-group group-id="ToolsMenu" anchor="last"/>
+
+			<action id="Sourcebeam.Start"
+				class="com.github.krowten.sourcebeam.StartBroadcastAction"
+				text="Start Broadcasting"
+				description="Snapshot the project and stream changes to the viewer session"
+				icon="AllIcons.Actions.Execute"/>
+			<action id="Sourcebeam.Stop"
+				class="com.github.krowten.sourcebeam.StopBroadcastAction"
+				text="Stop Broadcasting"
+				description="Disconnect and stop watching the project"
+				icon="AllIcons.Actions.Suspend"/>
+			<separator/>
+			<action id="Sourcebeam.CopyInvite"
+				class="com.github.krowten.sourcebeam.CopyInviteLinkAction"
+				text="Copy Invite Link"
+				description="Mint a time-limited viewer link and copy it to the clipboard"
+				icon="AllIcons.CodeWithMe.CwmInvite"/>
+			<action id="Sourcebeam.RevokeInvites"
+				class="com.github.krowten.sourcebeam.RevokeInvitesAction"
+				text="Revoke Invite Links"
+				description="Invalidate every link handed out so far and disconnect current viewers"
+				icon="AllIcons.Actions.Cancel"/>
+			<separator/>
+			<action id="Sourcebeam.OpenSettings"
+				class="com.github.krowten.sourcebeam.OpenSettingsAction"
+				text="Settings…"
+				description="Open Settings | Tools | Sourcebeam"
+				icon="AllIcons.General.Settings"/>
+			<action id="Sourcebeam.SetToken"
+				class="com.github.krowten.sourcebeam.SetHostTokenAction"
+				text="Set Host Token…"
+				description="Store the host token in the IDE password safe"/>
+			<action id="Sourcebeam.DeleteProject"
+				class="com.github.krowten.sourcebeam.DeleteProjectAction"
+				text="Delete Project…"
+				description="Delete the project and all its files on the server"/>
+		</group>
+	</actions>
+</idea-plugin>

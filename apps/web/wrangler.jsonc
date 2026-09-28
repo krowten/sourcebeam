@@ -1,0 +1,34 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "sourcebeam",
+	"compatibility_date": "2026-07-20",
+	"compatibility_flags": ["nodejs_als"],
+	// `main` deliberately points at the custom entry; the SvelteKit build uses the paired
+	// wrangler.build.jsonc (no main/assets), otherwise adapter-cloudflare would overwrite main.
+	"main": "src/worker.ts",
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".svelte-kit/cloudflare"
+	},
+	"durable_objects": {
+		"bindings": [{ "name": "PROJECT_ROOM", "class_name": "ProjectRoom" }]
+	},
+	// Replace with your own namespace id from `wrangler kv namespace create sourcebeam-HOST_TOKENS`.
+	// Local runs (`wrangler dev`, e2e) ignore this id and use an emulated KV, so the
+	// placeholder only blocks `wrangler deploy`. To keep your id out of git, copy this file
+	// to wrangler.local.jsonc (gitignored) and deploy with `-c wrangler.local.jsonc`.
+	"kv_namespaces": [{ "binding": "HOST_TOKENS", "id": "<your-kv-namespace-id>" }],
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProjectRoom"] }],
+	"vars": {
+		// Days a project may sit idle before it deletes itself, counted from the last file
+		// change or host connection (viewers watching don't count). "never" — the default,
+		// and what you get by leaving this out — keeps projects until something deletes them
+		// explicitly, so updating an existing deployment never starts removing data on its own.
+		// A project that's still broadcast regularly keeps pushing its own deadline out, so a
+		// TTL only collects abandoned ones; re-broadcasting a collected id just recreates it.
+		// 7 is a sensible starting point if you do want collection.
+		"PROJECT_TTL_DAYS": "never"
+	},
+	"workers_dev": true,
+	"preview_urls": true
+}

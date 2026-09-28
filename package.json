@@ -1,0 +1,37 @@
+{
+  "name": "sourcebeam",
+  "description": "A live, read-only mirror of a project folder in the browser",
+  "version": "0.1.0",
+  "license": "MIT",
+ 	"author": {
+		"name": "krowten",
+		"email": "me@krowten.dev",
+		"url": "https://krowten.dev"
+	},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/krowten/sourcebeam"
+  },
+  "type": "module",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*", "extensions/vscode"],
+  "scripts": {
+    "deploy": "bun scripts/deploy.ts",
+    "undeploy": "bun scripts/undeploy.ts",
+    "token": "bun scripts/token.ts",
+    "project": "bun scripts/project.ts",
+    "bump-version": "bun scripts/version.ts",
+    "release:publish": "bun scripts/publish.ts",
+    "dev": "bun run --cwd apps/web dev",
+    "preview": "bun run --cwd apps/web preview",
+    "test": "bun test --cwd packages/protocol && bun test scripts/lib/cloudflare.spec.ts && bun run --cwd apps/web test:unit -- --run && bun run --cwd apps/web test:do && bun run --cwd extensions/vscode test",
+    "test:e2e": "bun run --cwd apps/web test:e2e",
+    "lint": "bun run --cwd apps/web lint",
+    "check": "bun run --cwd apps/web check && bun run --cwd extensions/vscode typecheck",
+    "format": "bun run --cwd apps/web format"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "typescript": "^6.0.3"
+  }
+}

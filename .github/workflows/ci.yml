@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+
+env:
+  CI: true
+  WRANGLER_SEND_METRICS: false
+
+jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      jetbrains: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.jetbrains }}
+      vscode: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.vscode }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            jetbrains:
+              - 'extensions/jetbrains/**'
+              - 'packages/protocol/**'
+              - '.github/workflows/ci.yml'
+            vscode:
+              - 'extensions/vscode/**'
+              - 'packages/protocol/**'
+              - '.github/workflows/ci.yml'
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Cache bun install
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+      - run: bun install
+      - run: bun run --cwd apps/web lint
+      - run: bun run --cwd apps/web check
+      - run: bun run --cwd extensions/vscode typecheck
+      - run: bun test --cwd packages/protocol
+      - run: bun test scripts/lib/cloudflare.spec.ts
+      - run: bun run --cwd apps/web test:unit -- --run
+      - run: bun run --cwd apps/web test:do
+      # via the package script: it excludes tests/integration/**, which needs a real editor host
+      - run: bun run --cwd extensions/vscode test
+
+  jetbrains-tests:
+    name: JetBrains plugin tests
+    needs: changes
+    if: needs.changes.outputs.jetbrains == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      # v6 split Gradle caching into a proprietary "gradle-actions-caching" component
+      # (https://blog.gradle.org/github-actions-for-gradle-v6), which is why this stayed on
+      # v5 for a while. v6.1 walked that back with an MIT-licensed "basic" provider
+      # (https://blog.gradle.org/choice-clarity-future-caching-gradle-actions) — request it
+      # explicitly so caching here stays fully open source.
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      # Deliberately just `test`, not `buildPlugin` — packaging (and its own correctness checks
+      # like verifyPluginProjectConfiguration) happens in release.yml, on a version tag, not on
+      # every push. That's also where the installable zip gets built and published, so CI here
+      # never downloads a full IDE distribution just to throw the result away.
+      - run: ./gradlew test --no-daemon
+        working-directory: extensions/jetbrains
+
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Cache bun install
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+      - run: bun install
+      - run: bunx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: bun run --cwd apps/web test:e2e
+
+  extension-integration:
+    name: Extension integration tests
+    needs: changes
+    if: needs.changes.outputs.vscode == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Cache bun install
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+      # The suite downloads a stable VS Code build (~340 MB) on first run; cache it.
+      - name: Cache VS Code test build
+        uses: actions/cache@v6
+        with:
+          path: extensions/vscode/.vscode-test
+          key: ${{ runner.os }}-vscode-test
+      - run: bun install
+      - run: bun run --cwd apps/web build
+      # The extension talks to a real Worker: wrangler dev with emulated DO/KV on :4173.
+      - name: Start local Worker
+        run: bun run --cwd apps/web preview &
+      - name: Wait for the Worker
+        run: timeout 90 bash -c 'until curl -sf -o /dev/null http://localhost:4173/; do sleep 1; done'
+      # The editor host needs a display; GitHub runners ship Xvfb but no X server.
+      - run: xvfb-run -a bun run --cwd extensions/vscode test:integration

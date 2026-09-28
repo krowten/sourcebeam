@@ -1,0 +1,23 @@
+{
+	"extends": "./.svelte-kit/tsconfig.json",
+	"compilerOptions": {
+		"rewriteRelativeImportExtensions": true,
+		"allowJs": true,
+		// false: src/worker.ts imports the generated `.svelte-kit/cloudflare/_worker.js` build
+		// artifact (see src/worker.d.ts). With checkJs on, TypeScript type-checks that file's
+		// entire (untyped, generated) internals as part of the program, producing hundreds of
+		// unrelated errors from SvelteKit's own output. allowJs alone still lets TS infer the
+		// import's shape for consumers, it just stops reporting diagnostics inside .js files.
+		"checkJs": false,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"sourceMap": true,
+		"strict": true,
+		"moduleResolution": "bundler",
+		// the second entry supplies the `cloudflare:test` module used by src/worker/*.spec.ts
+		// (run by test:do through @cloudflare/vitest-pool-workers)
+		"types": ["./worker-configuration.d.ts", "@cloudflare/vitest-pool-workers/types"]
+	}
+}

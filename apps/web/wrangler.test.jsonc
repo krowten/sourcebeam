@@ -1,0 +1,11 @@
+{
+	"name": "sourcebeam-test",
+	"compatibility_date": "2026-07-20",
+	"main": "src/worker/test-entry.ts",
+	"kv_namespaces": [{ "binding": "HOST_TOKENS", "id": "test" }],
+	"durable_objects": { "bindings": [{ "name": "PROJECT_ROOM", "class_name": "ProjectRoom" }] },
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProjectRoom"] }],
+	// Set here so the idle-TTL alarm paths are reachable in tests. Harmless for the other
+	// suites: an alarm only ever runs when a test drives it with runDurableObjectAlarm().
+	"vars": { "PROJECT_TTL_DAYS": "30" }
+}

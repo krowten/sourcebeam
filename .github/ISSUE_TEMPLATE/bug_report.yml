@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in the server, the viewer or an editor extension doesn't work as documented.
+labels: [bug]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where does it happen?
+      options:
+        - VS Code extension
+        - JetBrains plugin
+        - Browser viewer
+        - Server / deploy scripts
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Extension or plugin version, editor/IDE version, browser if it's the viewer.
+      placeholder: "sourcebeam 0.1.0, VS Code 1.104, Firefox 143"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start broadcasting a project with ...
+        2. Open the invite link and ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The extension's output channel, the IDE log, or the browser console. Remove host tokens and invite links first.
+      render: text

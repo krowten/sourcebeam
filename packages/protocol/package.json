@@ -1,0 +1,20 @@
+{
+  "name": "@sourcebeam/protocol",
+  "description": "Shared sourcebeam wire types, file policy, and invite signing",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": {
+    "name": "krowten",
+    "email": "me@krowten.dev",
+    "url": "https://krowten.dev"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/krowten/sourcebeam",
+    "directory": "packages/protocol"
+  },
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "bun test" }
+}

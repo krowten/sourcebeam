@@ -1,0 +1,82 @@
+name: Release
+
+# Both extensions share the wire protocol, so they're versioned and released together: one
+# `v<x.y.z>` tag builds the .vsix and the plugin zip, attaches both to a single GitHub Release,
+# then publishes those exact files to the marketplaces with scripts/publish.ts — the same script
+# as a manual `bun run release:publish`. Publishing only runs for a marketplace whose token is in
+# the repository secrets (VSCE_PAT, OVSX_PAT, JETBRAINS_TOKEN); without them a release just stops
+# at the GitHub Release.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release extensions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Secrets can't be tested in a step's `if:` directly — only through env.
+      HAS_VSCODE_TOKEN: ${{ secrets.VSCE_PAT != '' || secrets.OVSX_PAT != '' }}
+      # Unset until the first version was uploaded by hand — the upload API only updates an
+      # existing plugin, it can't create the listing.
+      HAS_JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag matches both extension versions
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          vscode_version="$(jq -r .version extensions/vscode/package.json)"
+          jetbrains_version="$(grep -oP '(?<=^pluginVersion = ).*' extensions/jetbrains/gradle.properties)"
+          if [ "$tag_version" != "$vscode_version" ] || [ "$tag_version" != "$jetbrains_version" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match the extension versions (vscode $vscode_version, jetbrains $jetbrains_version) — run \`bun run bump-version $tag_version\` and commit it first." >&2
+            exit 1
+          fi
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - run: bun install
+      - run: bun run --cwd extensions/vscode package
+      # buildPlugin also runs verifyPluginProjectConfiguration and produces the installable zip.
+      - run: ./gradlew buildPlugin --no-daemon
+        working-directory: extensions/jetbrains
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            extensions/vscode/*.vsix
+            extensions/jetbrains/build/distributions/*.zip
+          name: "sourcebeam ${{ github.ref_name }}"
+          body: |
+            What changed: [extensions/vscode/CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/extensions/vscode/CHANGELOG.md) for VS Code, the `changeNotes` in [extensions/jetbrains/build.gradle.kts](https://github.com/${{ github.repository }}/blob/main/extensions/jetbrains/build.gradle.kts) for JetBrains.
+
+            **Server:** sourcebeam is self-hosted. Deploy your own Worker from this release's source with `bun run deploy`; see the [self-host quickstart](https://github.com/${{ github.repository }}#self-host-quickstart).
+
+            **VS Code:** download the `.vsix` below and run `code --install-extension <file>.vsix`, or use Extensions view → `…` menu → **Install from VSIX…**
+
+            **JetBrains IDEs:** download the `.zip` below, then Settings → Plugins → gear icon → **Install Plugin from Disk…**
+
+            Also published to the VS Code Marketplace, Open VSX and JetBrains Marketplace by this same workflow, when their tokens are configured.
+      - name: Publish to VS Code Marketplace / Open VSX
+        if: env.HAS_VSCODE_TOKEN == 'true'
+        run: bun run release:publish vscode "${GITHUB_REF_NAME#v}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+      - name: Publish to JetBrains Marketplace
+        if: env.HAS_JETBRAINS_TOKEN == 'true'
+        run: bun run release:publish jetbrains "${GITHUB_REF_NAME#v}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JETBRAINS_TOKEN: ${{ secrets.JETBRAINS_TOKEN }}

@@ -1,0 +1,9 @@
+{
+	// Build-only config: used exclusively by @sveltejs/adapter-cloudflare (via `adapter({ config })`
+	// in vite.config.ts) to decide where to write its generated worker. It has no `main`, so the
+	// adapter falls back to its default `${dest}/_worker.js` instead of overwriting our custom
+	// `src/worker.ts` (which is `main` in the real wrangler.jsonc used by `wrangler dev`/`deploy`).
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "sourcebeam",
+	"compatibility_date": "2026-07-20"
+}
