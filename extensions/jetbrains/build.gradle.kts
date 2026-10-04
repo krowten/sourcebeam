@@ -49,6 +49,15 @@ intellijPlatform {
 		version = providers.gradleProperty("pluginVersion")
 		changeNotes =
 			"""
+			<h3>0.1.1</h3>
+			<ul>
+				<li>Invite links: the lifetime setting now limits how long a link can be opened. A
+				viewer who opened it in time stays in the project until you revoke invite links or
+				delete the project. Needs the matching server update (<code>bun run deploy</code>).</li>
+				<li>The viewer page reconnects on its own after a network drop, and shows "no
+				access" or "deleted" once access is gone for good (server update).</li>
+				<li>No deprecated platform API usage left on 2026.1 and newer.</li>
+			</ul>
 			<h3>0.1.0</h3>
 			<p>Initial release.</p>
 			<ul>

@@ -4,11 +4,11 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VFileProperty
 import com.intellij.openapi.vfs.VirtualFile
@@ -647,8 +647,9 @@ private fun sha256Hex(bytes: ByteArray): String =
 private fun Project.baseDirectory(): VirtualFile? =
 	basePath?.let { com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(it) }
 
-// ReadAction.compute rather than the Kotlin `runReadActionBlocking` helper: that one only exists
-// from platform 2026.1, and pluginSinceBuild is 243 — verifyPlugin flagged NoSuchMethodError on
-// every 2024.3–2025.3 IDE. 2026.1 deprecates ReadAction.compute in its favour (one deprecation
-// warning in verifyPlugin); switch once the minimum supported platform reaches 261.
-private fun <T> inReadAction(block: () -> T): T = ReadAction.compute<T, RuntimeException> { block() }
+// Application.runReadAction rather than the Kotlin `runReadActionBlocking` helper IntelliJ
+// suggests: that one only exists from platform 2026.1, and pluginSinceBuild is 243 — verifyPlugin
+// flagged NoSuchMethodError on every 2024.3–2025.3 IDE. ReadAction.compute works everywhere but is
+// deprecated from 2026.1; this overload is neither missing nor deprecated on any supported build.
+private fun <T> inReadAction(block: () -> T): T =
+	ApplicationManager.getApplication().runReadAction(Computable { block() })

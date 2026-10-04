@@ -60,19 +60,27 @@ Run with `--dry-run` first if you'd rather see the plan before anything touches 
 
 Then:
 
-1. **Install the VS Code extension.** Not yet on the Marketplace — see
-   [extensions/vscode/README.md](extensions/vscode/README.md#1-install) for downloading a build
-   from GitHub Releases (or building it yourself). Then open **Settings…** in the Sourcebeam
-   sidebar and fill in the server URL (the `wss://` URL printed by the deploy script) and the
-   host token from the deploy summary — both are saved globally, once, for every folder you
-   open. The project id defaults to the folder's name. Don't see a token there (it only prints
+1. **Install the editor extension.**
+   - **JetBrains IDEs:** from [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34643-sourcebeam).
+   - **VSCodium, Cursor and other VS Code forks:** search for `Sourcebeam` in the Extensions
+     view; they install it from [Open VSX](https://open-vsx.org/extension/krowten/sourcebeam-vscode).
+   - **VS Code:** the Visual Studio Marketplace listing is under review. Until it's up,
+     download `sourcebeam-vscode-<version>.vsix` from
+     [GitHub Releases](https://github.com/krowten/sourcebeam/releases), then Extensions view →
+     `…` menu → **Install from VSIX…** (or `code --install-extension <file>.vsix`).
+   - **Any editor, from source:** see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+   Then open **Settings…** in the Sourcebeam sidebar (VS Code) or **Settings | Tools |
+   Sourcebeam** (JetBrains) and fill in the server URL (the `wss://` URL printed by the deploy
+   script) and the host token from the deploy summary — both are saved globally, once, for
+   every folder you open. The project id defaults to the folder's name. Don't see a token there (it only prints
    once, the first time you deploy) or need another one? Run `bun run token new`. See [Managing
    host tokens](docs/self-hosting.md#managing-host-tokens) for naming, listing and revoking
    tokens — handy when several people share one deployment.
 
-2. **Start broadcasting.** Open the folder to share in VS Code, run
-   **Sourcebeam: Start Broadcasting**, then **Sourcebeam: Copy Invite Link** and send that
-   link to your viewers.
+2. **Start broadcasting.** Open the folder to share, press **Start Broadcasting** in the
+   Sourcebeam panel (VS Code) or tool window (JetBrains), then **Copy Invite Link** and send
+   that link to your viewers.
 
 [extensions/vscode/README.md](extensions/vscode/README.md) has the full host workflow, and
 [extensions/jetbrains/README.md](extensions/jetbrains/README.md) covers broadcasting from a

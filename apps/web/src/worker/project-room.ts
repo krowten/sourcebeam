@@ -5,8 +5,11 @@ import {
 	isAllowedFile,
 	isValidPath,
 	parseJson,
+	PING,
+	PONG,
 	signInvite,
 	verifyInvite,
+	VIEWER_SESSION_SECONDS,
 	type ServerMessage
 } from '@sourcebeam/protocol';
 
@@ -62,6 +65,8 @@ export class ProjectRoom extends DurableObject<Env> {
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.ensureFilesTable();
+		// Viewer heartbeats are answered by the runtime itself, so they never wake a hibernating DO.
+		this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
 	}
 
 	private ensureFilesTable() {
@@ -416,8 +421,13 @@ export class ProjectRoom extends DurableObject<Env> {
 		if (!(await verifyInvite(token, project, await this.viewSecret(), now))) {
 			return new Response('invalid', { status: 401 });
 		}
-		const expiry = Number(token.slice(0, token.indexOf('.')));
-		return Response.json({ maxAge: expiry - now });
+		// Trade the invite for a long-lived viewer session, see VIEWER_SESSION_SECONDS.
+		const session = await signInvite(
+			project,
+			now + VIEWER_SESSION_SECONDS,
+			await this.viewSecret()
+		);
+		return Response.json({ token: session, maxAge: VIEWER_SESSION_SECONDS });
 	}
 
 	// this.projectId is in-memory only; it's lost across hibernation eviction (the DO can

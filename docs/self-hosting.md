@@ -60,7 +60,8 @@ and broadcasting stays connected until it reconnects. There's no redeploy involv
 this — it's a KV write against the already-deployed worker.
 
 Invite links are a different mechanism entirely. The host mints them per project from the
-editor, they expire on their own, and **Revoke Invite Links** kills them all at once; see
+editor. A link stops opening once its lifetime is up, but whoever already opened it stays in
+the project; **Revoke Invite Links** removes everyone at once; see
 [protocol.md](protocol.md#invites).
 
 ## Deleting a project
@@ -98,10 +99,10 @@ a `project_deleted` screen, old invite links dead.
 
 Two things this deliberately isn't:
 
-- **Not a replacement for invite expiry.** A project you broadcast every week never goes
-  idle, so its TTL never fires — while the link you handed out on day one would keep working
-  all term. Invite TTL (`inviteTtlHours`, default 6) is what bounds *access*; this bounds how
-  long *data* sticks around. Keep both.
+- **Not a way to end access.** A project you broadcast every week never goes idle, so its TTL
+  never fires, and everyone who joined on day one keeps watching all term. That's by design;
+  **Revoke Invite Links** is what ends access. The idle TTL bounds how long *data* sticks
+  around.
 - **Not destructive to re-use.** Broadcasting a collected project id again just recreates it
   from the next snapshot, same as a project that was never deleted.
 

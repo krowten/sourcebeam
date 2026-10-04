@@ -35,10 +35,10 @@ export async function route<E extends RouteEnv>(
 		clean.searchParams.delete('token');
 		const headers = new Headers({ Location: clean.pathname + clean.search });
 		if (res.status === 200) {
-			const { maxAge } = (await res.json()) as { maxAge: number };
+			const session = (await res.json()) as { token: string; maxAge: number };
 			headers.append(
 				'Set-Cookie',
-				`sb_view_${project}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`
+				`sb_view_${project}=${session.token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${session.maxAge}`
 			);
 		}
 		return new Response(null, { status: 302, headers });

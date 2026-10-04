@@ -45,7 +45,7 @@ Viewers then immediately receive the current file tree; the host does not:
 | `file_delete` | `{ path }` | Removes a file and broadcasts `tree_update`. |
 | `snapshot_end` | `{}` | Ends the snapshot. Files that were present before `snapshot_begin` but absent from the snapshot get deleted (stale cleanup). |
 | `mint_invite` | `{ ttlSeconds }` | Mints a signed invite; the server replies with `invite`. |
-| `rotate_view_secret` | `{}` | Invalidates every invite issued so far and disconnects current viewers (close `4001`); the server replies with `ok`. |
+| `rotate_view_secret` | `{}` | Invalidates every invite and viewer session issued so far and disconnects current viewers (close `4001`); the server replies with `ok`. |
 | `delete_project` | `{}` | Sends `project_deleted` to viewers, wipes storage (files **and** the view secret), and closes every connection with `4001`. |
 
 Every `file_put` is validated against the policy (path shape, size cap, text content, hard
@@ -62,6 +62,13 @@ Role violations (a viewer sending host messages, and vice versa) get an `error` 
 consecutive invalid messages from a viewer close its connection with code `1008`. The host's
 connection is never closed for invalid messages: losing the live broadcast over a malformed
 frame would hurt the viewers more than it protects the room.
+
+**Heartbeat.** A viewer also sends the bare text frame `ping` (not JSON) every
+`HEARTBEAT_INTERVAL_MS`, and the server answers `pong`. The reply comes from the Durable
+Object's WebSocket auto-response, so it never wakes a hibernating room and never counts as an
+invalid message. No `pong` within `HEARTBEAT_TIMEOUT_MS` means the link is dead even if the
+socket still reports itself open, as it does for minutes after a network drop. The viewer then
+drops that socket and reconnects. The same timeout bounds a hanging handshake.
 
 ## Server → client
 
@@ -88,8 +95,14 @@ random per project, created on first use and persisted in the Durable Object. Bo
 
 The viewer never sees the WebSocket handshake details. Opening
 `https://<server>/<project>?token=...` verifies the token, `302`-redirects to the clean URL,
-and sets the `sb_view_<project>` cookie (`HttpOnly; Secure; SameSite=Lax`) with `Max-Age`
-matching the token's remaining lifetime. Tokens that don't match `^\d+\.[0-9a-f]{64}$` are
+and sets the `sb_view_<project>` cookie (`HttpOnly; Secure; SameSite=Lax`). The cookie doesn't
+hold the invite token itself: it holds a session token signed the same way, with an expiry
+`VIEWER_SESSION_SECONDS` (400 days) out. So the invite's own expiry only limits how long the
+*link* can be opened. A viewer who opened it in time stays in the project, and a tab reopened
+the next day works without a token in the URL, until the host rotates the view secret
+(**Revoke Invite Links**) or deletes the project.
+
+Tokens that don't match `^\d+\.[0-9a-f]{64}$` are
 rejected before any storage is touched.
 
 ## File policy
@@ -113,3 +126,6 @@ enforces it again on every `file_put`.
 
 - `DEBOUNCE_MS = 300`: editors coalesce change bursts per file for this long before re-reading.
 - `RECONNECT_MIN_MS = 1000`, `RECONNECT_MAX_MS = 30000`: client reconnect backoff bounds.
+- `HEARTBEAT_INTERVAL_MS = 20000`, `HEARTBEAT_TIMEOUT_MS = 10000`: viewer ping cadence and how
+  long a ping (or a WebSocket handshake) may go unanswered before the connection is treated as
+  dead. A viewer that goes back online retries immediately instead of waiting out its backoff.

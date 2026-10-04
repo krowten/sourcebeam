@@ -212,10 +212,6 @@ VS Code proper.
   generate a PAT — that's `OVSX_PAT` — and claim the namespace once:
   `bunx ovsx create-namespace krowten` with `OVSX_PAT` exported.
 
-`package.json`'s `"private": true` is still set; drop it before the first real publish
-(neither `vsce` nor `ovsx` check it, but it's the flag that's meant to say "not published
-yet" in this repo).
-
 ### One-time setup: JetBrains
 
 One registry — [plugins.jetbrains.com](https://plugins.jetbrains.com) — not two: JetBrains
@@ -226,7 +222,7 @@ the rest) from a single listing, since they all run the same plugin host.
   [plugins.jetbrains.com/plugin/add](https://plugins.jetbrains.com/plugin/add), using the zip
   from its GitHub Release — the upload API only updates an existing listing, it can't create
   one (that's also where license and repository URL get set). It goes through a manual review
-  that takes a few working days; later versions are published right away.
+  (JetBrains quotes up to two working days); later versions are published right away.
 - Generate a token on your Marketplace profile's "My Tokens" page — that's `JETBRAINS_TOKEN`.
   Add it to the repository secrets only after that first upload: until the listing exists, an
   automatic upload from `release.yml` would just fail.

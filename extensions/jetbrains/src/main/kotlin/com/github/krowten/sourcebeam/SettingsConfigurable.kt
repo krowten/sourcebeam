@@ -71,7 +71,7 @@ class SourcebeamConfigurable(private val project: Project) : BoundConfigurable("
 				intTextField(range = 1..24 * 30)
 					.bindIntText(projectSettings::inviteTtlHours)
 					.columns(6)
-					.comment("For this project only; 6 hours unless you change it.")
+					.comment("How long a new link can be opened, for this project only; 6 hours unless you change it. Viewers who already joined stay until you revoke invite links.")
 			}
 			row("Host token:") {
 				// The field's current text, not the saved setting: a URL typed above but not applied yet

@@ -43,7 +43,29 @@ test('no invite, no cookie: viewer sees invite-invalid, never gets code', async 
 	await page.goto(`/${project}`);
 
 	await expect(page.getByTestId('invite-invalid')).toBeVisible();
+	await expect(page.getByTestId('status')).toHaveText('no access');
 	await expect(page.getByTestId('code')).toHaveCount(0);
+});
+
+test('revoking invites cuts off an open tab: it says "no access", not "reconnecting"', async ({
+	page
+}, testInfo) => {
+	const project = projectId(testInfo.testId);
+	const host = new FakeHost();
+	try {
+		await host.connect(BASE, project);
+		await page.goto(await host.mintInvite());
+		await host.snapshot({ 'src/main.py': 'print(1)' });
+		await expect(page.getByTestId('status')).toHaveText('live');
+
+		await host.rotateViewSecret();
+
+		// No reload: the server closes the socket, the probe gets a 403, and the page settles.
+		await expect(page.getByTestId('invite-invalid')).toBeVisible();
+		await expect(page.getByTestId('status')).toHaveText('no access');
+	} finally {
+		host.close();
+	}
 });
 
 test('rotating the view secret invalidates the old invite on reload', async ({
@@ -82,6 +104,7 @@ test('host deletes the project: viewer sees the project-deleted screen', async (
 		host.deleteProject();
 
 		await expect(page.getByTestId('project-deleted')).toBeVisible();
+		await expect(page.getByTestId('status')).toHaveText('deleted');
 	} finally {
 		host.close();
 	}

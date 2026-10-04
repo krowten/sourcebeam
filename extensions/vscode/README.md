@@ -14,13 +14,7 @@ Requires **VS Code ≥ 1.101** (Help → About) and a running sourcebeam deploym
 
 ## 1. Install
 
-**Not yet on the Marketplace.** Until it is, download `sourcebeam-vscode-<version>.vsix` from
-the latest release on [GitHub Releases](https://github.com/krowten/sourcebeam/releases), then either
-`code --install-extension sourcebeam-vscode-<version>.vsix` from a terminal, or Extensions
-view (`Ctrl+Shift+X`) → `…` menu (top right) → **Install from VSIX…** → pick the file.
-
-Building it yourself instead works the same way — see
-[CONTRIBUTING.md](https://github.com/krowten/sourcebeam/blob/main/CONTRIBUTING.md).
+Open the Extensions view (`Ctrl+Shift+X`), search for **Sourcebeam** and press **Install**.
 
 ## 2. Set up
 
@@ -31,7 +25,8 @@ in the panel's title bar). One form holds every setting:
   workspace.
 - **Project id** — lowercase letters, digits, `-` and `_`. Per-workspace, so each folder you open
   keeps its own; left blank, it defaults to the folder's name, sanitized.
-- **Invite link lifetime (hours)** — per-workspace, 6 unless you change it.
+- **Invite link lifetime (hours)** — how long a new link can be opened; per-workspace, 6
+  unless you change it. Viewers who already joined aren't affected.
 - **Host token** — paste the token from the deploy summary and press **Save**; leave the field
   blank to keep the current one. Saved per server URL and shared by every workspace, in VS
   Code's encrypted `SecretStorage`, never in `settings.json`.
@@ -70,7 +65,9 @@ Every action is also in the Command Palette under **Sourcebeam:**.
 1. Open the project folder you want to share.
 2. Press **Start Broadcasting**. Once the initial snapshot is sent, the status bar shows `live`.
 3. Press **Copy Invite Link** (it works while broadcasting). The link carries a signed token
-   that stays valid for the invite link lifetime; send it to whoever should watch.
+   that can be opened for the invite link lifetime; send it to whoever should watch. Whoever
+   opens it in time stays in the project, even in a tab reopened days later, until you revoke
+   invite links or delete the project.
 
 Every file you save shows up for viewers within about a second, and autosave works too.
 **Stop Broadcasting** (row, title-bar icon or status bar) disconnects; viewers keep seeing the last
@@ -95,6 +92,18 @@ must stay private in `.gitignore`. Nothing under `.git/` is ever sent.
 - Files over 512 KB are skipped; the server publishes this cap on connect.
 - A project with more than 500 files left after `.gitignore` is refused rather than uploaded —
   add the extras to `.gitignore` and start again.
+
+## Privacy
+
+- The extension connects to one place only: the server URL you configure, which runs on your
+  own Cloudflare account. Nothing is sent to the extension's author or any third party.
+- No telemetry, analytics or usage tracking of any kind.
+- Files are sent only while you're broadcasting, and only as described in
+  [What gets sent](#what-gets-sent). **Stop Broadcasting** or closing the window ends it.
+- The host token stays in VS Code's encrypted `SecretStorage`; viewers never see it.
+- Viewers need an invite link from you, and **Revoke Invite Links** removes everyone at once.
+- The source is public under the MIT license:
+  [github.com/krowten/sourcebeam](https://github.com/krowten/sourcebeam).
 
 ## Good to know
 

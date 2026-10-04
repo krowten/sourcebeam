@@ -2,8 +2,7 @@
   "name": "sourcebeam-vscode",
   "displayName": "Sourcebeam",
   "description": "Live code sharing without the screen share: broadcast your project to a read-only browser viewer for teaching, mentoring, code walkthroughs and pair programming.",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "publisher": "krowten",
   "author": {
     "name": "krowten",
@@ -42,7 +41,6 @@
     "pair programming",
     "classroom",
     "code walkthrough",
-    "code with me",
     "collaboration",
     "screen sharing alternative",
     "workshop",
@@ -179,7 +177,7 @@
           "type": "number",
           "default": 6,
           "scope": "window",
-          "description": "Lifetime of a minted invite link, in hours. Per-workspace only (Workspace settings); a value in User settings is ignored. 6 unless set."
+          "description": "How long a minted invite link can be opened, in hours; viewers who already joined stay until you revoke invite links. Per-workspace only (Workspace settings); a value in User settings is ignored. 6 unless set."
         }
       }
     }

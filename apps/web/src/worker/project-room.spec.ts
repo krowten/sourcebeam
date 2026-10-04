@@ -6,6 +6,7 @@ import {
 	SELF
 } from 'cloudflare:test';
 import { beforeAll, describe, expect, test } from 'vitest';
+import { signInvite } from '@sourcebeam/protocol';
 import { inactivityTtlMs } from './project-room';
 
 // Loose shape for anything the server sends; `url`/`expiresAt` are declared so invite
@@ -32,6 +33,7 @@ async function connect(project: string, opts: ConnectOpts = {}): Promise<Inbox> 
 	const inbox: Msg[] = [];
 	const waiters: ((m: Msg) => void)[] = [];
 	ws.addEventListener('message', (e) => {
+		if (e.data === 'pong') return; // heartbeat replies, see the heartbeat test
 		const m = JSON.parse(e.data as string) as Msg;
 		const w = waiters.shift();
 		if (w) w(m);
@@ -243,6 +245,28 @@ describe('ProjectRoom', () => {
 		expect(invite.url).toMatch(/^\/hib-1\?token=\d+\.[0-9a-f]+$/);
 	});
 
+	test('session: an accepted invite keeps working after the link expires, until revoked', async () => {
+		const stub = env.PROJECT_ROOM.get(env.PROJECT_ROOM.idFromName('session-1'));
+		const host = await connect('session-1', { host: 'valid-host' });
+		await host.next(); // policy
+		const invite = await mintToken(host, 'session-1', 60);
+
+		const res = await stub.fetch(`https://do/verify?project=session-1&token=${invite}`);
+		const { token: session } = (await res.json()) as { token: string };
+		// Same signature scheme, but the expiry is the session's, far past the one-minute link.
+		const inviteExpiry = Number(invite.split('.')[0]);
+		expect(Number(session.split('.')[0]) - inviteExpiry).toBeGreaterThan(399 * 24 * 60 * 60);
+
+		const viewer = await connect('session-1', { viewToken: session });
+		await viewer.next(); // policy
+		expect((await viewer.next()).type).toBe('tree');
+
+		host.send({ type: 'rotate_view_secret' });
+		expect(await host.next()).toEqual({ type: 'ok' });
+		const stale = await connectRejected('session-1', { cookie: `sb_view_session-1=${session}` });
+		expect(stale.status).toBe(403);
+	});
+
 	test('invite: rotate_view_secret closes already-connected viewers, not just future ones', async () => {
 		const host = await connect('rotate-1', { host: 'valid-host' });
 		await host.next(); // policy
@@ -288,6 +312,25 @@ describe('ProjectRoom', () => {
 		const viewer = await connectViewer(host, 'policy-1');
 		expect(await viewer.next()).toEqual(policyMsg);
 		expect((await viewer.next()).type).toBe('tree');
+	});
+
+	test('heartbeat: ping gets pong from the runtime and never reaches the DO as a bad frame', async () => {
+		const host = await connect('heartbeat-1', { host: 'valid-host' });
+		await host.next(); // policy
+		const viewer = await connectViewer(host, 'heartbeat-1');
+		await viewer.next(); // policy
+		await viewer.next(); // tree
+
+		let pongs = 0;
+		viewer.ws.addEventListener('message', (e) => {
+			if (e.data === 'pong') pongs++;
+		});
+		// Well past the viewer's bad-frame limit: were these reaching webSocketMessage as
+		// non-JSON garbage, the socket would be closed for too many errors.
+		for (let i = 0; i < 30; i++) viewer.ws.send('ping');
+		viewer.send({ type: 'subscribe', path: 'missing.ts' });
+		expect((await viewer.next()).type).toBe('error');
+		expect(pongs).toBe(30);
 	});
 
 	test('policy: binary content and git internals are rejected', async () => {
@@ -874,8 +917,7 @@ describe('ProjectRoom', () => {
 		const ok = await stub.fetch(`https://do/verify?project=verify-2&token=${token}`);
 		expect(ok.status).toBe(200);
 		const { maxAge } = (await ok.json()) as { maxAge: number };
-		expect(maxAge).toBeGreaterThan(3590);
-		expect(maxAge).toBeLessThanOrEqual(3600);
+		expect(maxAge).toBe(400 * 24 * 60 * 60);
 
 		// Well-formed token, but the mac was signed for verify-2 — claiming another project fails.
 		const wrong = await stub.fetch(`https://do/verify?project=other&token=${token}`);
@@ -1004,5 +1046,173 @@ describe('ProjectRoom', () => {
 			// It's here to catch a deleted project that keeps waking on a stale alarm.
 			expect(await alarmAt('ttl-cleared')).toBeNull();
 		});
+	});
+});
+
+// End to end through the Worker, the way a browser meets it: open `/<project>?token=` (the
+// Worker swaps the link for a session cookie), then use that cookie for the HEAD probe and the
+// WebSocket. Tokens that are already expired are signed with the room's real secret instead of
+// waiting out a clock.
+describe('invite lifecycle', () => {
+	beforeAll(async () => {
+		await env.HOST_TOKENS.put('valid-host', '{}');
+	});
+
+	const now = () => Math.floor(Date.now() / 1000);
+	const room = (project: string) => env.PROJECT_ROOM.get(env.PROJECT_ROOM.idFromName(project));
+
+	/** Opens an invite link like a browser would; returns the session cookie value, or null. */
+	async function accept(project: string, token: string): Promise<string | null> {
+		const res = await SELF.fetch(`https://x/${project}?token=${encodeURIComponent(token)}`, {
+			redirect: 'manual'
+		});
+		expect(res.status).toBe(302);
+		const cookie = res.headers.get('Set-Cookie');
+		return cookie ? new RegExp(`^sb_view_${project}=([^;]+);`).exec(cookie)![1] : null;
+	}
+
+	/** The viewer's reachability probe: 204 means the cookie gets in, 403 means it doesn't. */
+	async function probe(project: string, session: string, cookieProject = project) {
+		const res = await SELF.fetch(`https://x/ws/${project}`, {
+			method: 'HEAD',
+			headers: { Cookie: `sb_view_${cookieProject}=${session}` }
+		});
+		return res.status;
+	}
+
+	async function signWithRoomSecret(project: string, expiry: number): Promise<string> {
+		return runInDurableObject(room(project), async (_instance, state) =>
+			signInvite(project, expiry, (await state.storage.get<ArrayBuffer>('viewSecret'))!)
+		);
+	}
+
+	async function hostWithFile(project: string): Promise<Inbox> {
+		const host = await connect(project, { host: 'valid-host' });
+		await host.next(); // policy
+		host.send({ type: 'snapshot_begin' });
+		host.send(put('a.txt', 'A1'));
+		host.send({ type: 'snapshot_end' });
+		await syncHost(host);
+		return host;
+	}
+
+	async function watch(project: string, session: string): Promise<Inbox> {
+		const viewer = await connect(project, { viewToken: session });
+		expect((await viewer.next()).type).toBe('policy');
+		expect((await viewer.next()).type).toBe('tree');
+		viewer.send({ type: 'subscribe', path: 'a.txt' });
+		expect((await viewer.next()).type).toBe('file');
+		return viewer;
+	}
+
+	test('an expired link is refused at the door and sets no cookie', async () => {
+		const host = await hostWithFile('life-expired');
+		await mintToken(host, 'life-expired'); // makes sure the room has a secret
+		const expired = await signWithRoomSecret('life-expired', now() - 5);
+
+		expect(await accept('life-expired', expired)).toBeNull();
+		expect(await probe('life-expired', expired)).toBe(403);
+	});
+
+	test('a session outlives its link: a reopened tab keeps watching and gets live updates', async () => {
+		const host = await hostWithFile('life-outlive');
+		await mintToken(host, 'life-outlive'); // makes sure the room has a secret
+		const link = await signWithRoomSecret('life-outlive', now() + 1);
+		const session = (await accept('life-outlive', link))!;
+		expect(session).not.toBe(link);
+
+		await new Promise((r) => setTimeout(r, 2100)); // the link itself is now past its expiry
+		expect(await accept('life-outlive', link)).toBeNull(); // a newcomer can't use it
+		expect(await probe('life-outlive', session)).toBe(204); // the one who joined still can
+
+		const viewer = await watch('life-outlive', session);
+		host.send(put('a.txt', 'A2'));
+		const update = await viewer.next();
+		expect(update).toMatchObject({ type: 'file', path: 'a.txt', content: 'A2' });
+	});
+
+	test('several invites coexist; minting or accepting a new one takes nothing from earlier sessions', async () => {
+		const host = await hostWithFile('life-many');
+		const first = (await accept('life-many', await mintToken(host, 'life-many')))!;
+		const second = (await accept('life-many', await mintToken(host, 'life-many')))!;
+		await mintToken(host, 'life-many'); // a third link nobody opened yet
+
+		expect(await probe('life-many', first)).toBe(204);
+		expect(await probe('life-many', second)).toBe(204);
+		// The same browser opening a newer link just swaps its cookie for another valid session.
+		const again = (await accept('life-many', await mintToken(host, 'life-many')))!;
+		expect(await probe('life-many', again)).toBe(204);
+		expect(await probe('life-many', first)).toBe(204);
+	});
+
+	test('revoke ends every session and every unopened link; links minted afterwards work', async () => {
+		const host = await hostWithFile('life-revoke');
+		const s1 = (await accept('life-revoke', await mintToken(host, 'life-revoke')))!;
+		const s2 = (await accept('life-revoke', await mintToken(host, 'life-revoke')))!;
+		const unopened = await mintToken(host, 'life-revoke');
+		const v1 = await watch('life-revoke', s1);
+		const v2 = await watch('life-revoke', s2);
+		const c1 = v1.waitClose();
+		const c2 = v2.waitClose();
+
+		host.send({ type: 'rotate_view_secret' });
+		expect(await host.next()).toEqual({ type: 'ok' });
+
+		expect((await c1).code).toBe(4001);
+		expect((await c2).code).toBe(4001);
+		expect(await probe('life-revoke', s1)).toBe(403);
+		expect(await probe('life-revoke', s2)).toBe(403);
+		expect(await accept('life-revoke', unopened)).toBeNull();
+
+		const fresh = (await accept('life-revoke', await mintToken(host, 'life-revoke')))!;
+		expect(await probe('life-revoke', fresh)).toBe(204);
+		await watch('life-revoke', fresh);
+	});
+
+	test('deleting the project ends sessions; the same name starts over with a new secret', async () => {
+		const host = await hostWithFile('life-delete');
+		const session = (await accept('life-delete', await mintToken(host, 'life-delete')))!;
+		const closed = host.waitClose();
+		host.send({ type: 'delete_project' });
+		expect((await closed).code).toBe(4001);
+
+		expect(await probe('life-delete', session)).toBe(403);
+		const reborn = await hostWithFile('life-delete');
+		expect(await probe('life-delete', session)).toBe(403);
+		const fresh = (await accept('life-delete', await mintToken(reborn, 'life-delete')))!;
+		expect(await probe('life-delete', fresh)).toBe(204);
+	});
+
+	test('sessions survive the room being evicted from memory and the host reconnecting', async () => {
+		const host = await hostWithFile('life-evict');
+		const session = (await accept('life-evict', await mintToken(host, 'life-evict')))!;
+
+		await evictDurableObject(room('life-evict'));
+		expect(await probe('life-evict', session)).toBe(204);
+
+		const hostClosed = host.waitClose();
+		const newHost = await hostWithFile('life-evict');
+		expect((await hostClosed).code).toBe(4000);
+		expect(await probe('life-evict', session)).toBe(204);
+		await watch('life-evict', session);
+		expect(newHost).toBeTruthy();
+	});
+
+	test('a session is scoped to its own project', async () => {
+		const host = await hostWithFile('life-scope-a');
+		await hostWithFile('life-scope-b');
+		const session = (await accept('life-scope-a', await mintToken(host, 'life-scope-a')))!;
+
+		expect(await probe('life-scope-b', session)).toBe(403);
+		// A link for project A opened on project B's page doesn't set B's cookie either.
+		expect(await accept('life-scope-b', await mintToken(host, 'life-scope-a'))).toBeNull();
+	});
+
+	test('a session past its own (400-day) expiry is refused', async () => {
+		const host = await hostWithFile('life-session-end');
+		const live = (await accept('life-session-end', await mintToken(host, 'life-session-end')))!;
+		expect(await probe('life-session-end', live)).toBe(204);
+		const stale = await signWithRoomSecret('life-session-end', now() - 1);
+		expect(await probe('life-session-end', stale)).toBe(403);
 	});
 });

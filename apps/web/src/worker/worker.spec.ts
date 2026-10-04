@@ -34,7 +34,9 @@ describe('routing: token -> cookie exchange', () => {
 		});
 		expect(res.status).toBe(302);
 		expect(res.headers.get('Location')).toBe('/wr-1');
-		expect(res.headers.get('Set-Cookie')).toContain(`sb_view_wr-1=${token}`);
+		// The cookie holds a session token of its own, not the invite link's token.
+		expect(res.headers.get('Set-Cookie')).toMatch(/^sb_view_wr-1=\d+\.[0-9a-f]{64};/);
+		expect(res.headers.get('Set-Cookie')).not.toContain(token);
 		expect(res.headers.get('Set-Cookie')).toContain('HttpOnly');
 	});
 
@@ -63,13 +65,11 @@ describe('routing: token -> cookie exchange', () => {
 		expect(res.headers.get('Set-Cookie')).toBeNull();
 	});
 
-	test('Set-Cookie Max-Age tracks the remaining invite ttl', async () => {
+	test('the viewer cookie outlives the invite: Max-Age is the session lifetime, not the link ttl', async () => {
 		const token = await mintToken('wr-6'); // minted with ttl 3600
 		const res = await SELF.fetch(`https://x/wr-6?token=${token}`, { redirect: 'manual' });
 		const cookie = res.headers.get('Set-Cookie')!;
-		const maxAge = Number(/Max-Age=(\d+)/.exec(cookie)![1]);
-		expect(maxAge).toBeGreaterThan(3590);
-		expect(maxAge).toBeLessThanOrEqual(3600);
+		expect(Number(/Max-Age=(\d+)/.exec(cookie)![1])).toBe(400 * 24 * 60 * 60);
 	});
 
 	test('paths that are not valid project ids skip the exchange entirely', async () => {

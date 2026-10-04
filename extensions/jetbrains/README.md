@@ -18,12 +18,16 @@ and nothing on the server knows the difference.
 
 ## Install
 
-**Not yet on JetBrains Marketplace.** Until it is, download
-`sourcebeam-jetbrains-<version>.zip` from the latest release on [GitHub Releases](https://github.com/krowten/sourcebeam/releases). Then
-**Settings/Preferences | Plugins | ⚙ | Install Plugin from Disk…**, pick the zip, restart
+From [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34643-sourcebeam):
+**Settings/Preferences | Plugins | Marketplace**, search for `Sourcebeam`, **Install**. Or use
+**Install to IDE** on the Marketplace page.
+
+For an offline install or a specific version, download `sourcebeam-jetbrains-<version>.zip`
+from [GitHub Releases](https://github.com/krowten/sourcebeam/releases), then
+**Settings/Preferences | Plugins | ⚙ | Install Plugin from Disk…**, pick the zip and restart
 the IDE.
 
-Building it yourself instead works the same way — see
+Building it yourself works the same way as the zip route — see
 [CONTRIBUTING.md](https://github.com/krowten/sourcebeam/blob/main/CONTRIBUTING.md).
 
 ## Setup
@@ -35,7 +39,8 @@ Sourcebeam) and click its **Server** or **Project** link. Everything is on one p
   open in this IDE.
 - **Project id** — lowercase letters, digits, `-` and `_`, can't start with `-` or `_`.
   Per-project; left blank, it defaults to the project's folder name, sanitized.
-- **Invite link lifetime (hours)** — per-project, 6 unless you change it.
+- **Invite link lifetime (hours)** — how long a new link can be opened; per-project, 6
+  unless you change it. Viewers who already joined aren't affected.
 - **Host token** — **Set…** asks for the token from the deploy summary and saves it for the
   server URL typed above (no need to press Apply first), shared by every project. It goes into
   the IDE password safe (the OS keychain where there is one), never into a settings file, so a
@@ -62,7 +67,7 @@ only place **Delete Project…** lives: a one-click toolbar icon is the wrong pl
 | --- | --- |
 | Start Broadcasting | Snapshots the project, then streams every change |
 | Stop Broadcasting | Disconnects; viewers keep seeing the last broadcast state |
-| Copy Invite Link | Mints a viewer link valid for the invite link lifetime and copies it |
+| Copy Invite Link | Mints a viewer link that can be opened for the invite link lifetime and copies it; whoever opens it stays in the project until you revoke invites |
 | Revoke Invite Links | Invalidates every link handed out and disconnects current viewers |
 | Settings… | Opens Settings \| Tools \| Sourcebeam |
 | Set Host Token… | Stores the token in the password safe |

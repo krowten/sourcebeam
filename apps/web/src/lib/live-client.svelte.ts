@@ -1,4 +1,8 @@
 import {
+	HEARTBEAT_INTERVAL_MS,
+	HEARTBEAT_TIMEOUT_MS,
+	PING,
+	PONG,
 	RECONNECT_MIN_MS,
 	RECONNECT_MAX_MS,
 	parseJson,
@@ -63,6 +67,9 @@ export function createLiveClient(projectId: string): LiveClient {
 	let closed = false;
 	let attempt = 0;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+	// Armed by a ping, disarmed by any inbound frame; firing means the link is dead.
+	let pongTimer: ReturnType<typeof setTimeout> | null = null;
 	// Per-attempt (not sticky, unlike treeReceived): true as soon as the current socket has
 	// received its first message (policy or tree). Reset at the start of every connect(), otherwise
 	// an invite revoked after a successful session would be indistinguishable from a first
@@ -130,7 +137,12 @@ export function createLiveClient(projectId: string): LiveClient {
 	}
 
 	async function probeThenDecide(): Promise<void> {
-		const status = await fetch(`/ws/${projectId}`, { method: 'HEAD', cache: 'no-store' })
+		const status = await fetch(`/ws/${projectId}`, {
+			method: 'HEAD',
+			cache: 'no-store',
+			// It can ride a keep-alive connection that died with the network and hang for good.
+			signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT_MS)
+		})
 			.then((res) => res.status)
 			// network unreachable — not our call to make, treat like any transient failure
 			.catch(() => null);
@@ -147,18 +159,30 @@ export function createLiveClient(projectId: string): LiveClient {
 		gotMessageThisAttempt = false;
 		const socket = new WebSocket(wsUrl());
 		ws = socket;
+		// A handshake sent into a dead network can hang as long as a dead open socket can.
+		const handshakeTimer = setTimeout(() => {
+			if (ws === socket && socket.readyState === WebSocket.CONNECTING) abandon(socket);
+		}, HEARTBEAT_TIMEOUT_MS);
 
 		socket.addEventListener('open', () => {
+			clearTimeout(handshakeTimer);
 			attempt = 0;
 			status = 'live';
 			if (openPath) send({ type: 'subscribe', path: openPath });
+			startHeartbeat(socket);
 		});
 		socket.addEventListener('message', (ev) => {
+			if (pongTimer) clearTimeout(pongTimer);
+			pongTimer = null;
+			if (ev.data === PONG) return;
 			const msg = parseJson(ev.data as string | ArrayBuffer);
 			if (msg) handleMessage(msg as ServerMessage);
 		});
 		socket.addEventListener('close', () => {
-			if (closed) return;
+			clearTimeout(handshakeTimer);
+			// An abandoned socket may still report its close much later.
+			if (closed || ws !== socket) return;
+			stopHeartbeat();
 			// Invite-only viewer without a valid cookie never gets past the HTTP upgrade (403):
 			// the socket closes/errors before any message (policy/tree) ever arrives. Same signal
 			// covers an invite revoked mid-session (server closes the *next* connect attempt before
@@ -177,13 +201,53 @@ export function createLiveClient(projectId: string): LiveClient {
 		socket.addEventListener('error', () => socket.close());
 	}
 
+	function startHeartbeat(socket: WebSocket): void {
+		stopHeartbeat();
+		heartbeatTimer = setInterval(() => {
+			socket.send(PING);
+			// No pong in time: the link is dead even though the socket still says OPEN.
+			pongTimer ??= setTimeout(() => abandon(socket), HEARTBEAT_TIMEOUT_MS);
+		}, HEARTBEAT_INTERVAL_MS);
+	}
+
+	/** Give up on a socket without waiting for its close event — on a dead network the browser
+	 * may take minutes to fire it. */
+	function abandon(socket: WebSocket): void {
+		ws = null;
+		stopHeartbeat();
+		socket.close();
+		scheduleReconnect();
+	}
+
+	function stopHeartbeat(): void {
+		if (heartbeatTimer) clearInterval(heartbeatTimer);
+		if (pongTimer) clearTimeout(pongTimer);
+		heartbeatTimer = null;
+		pongTimer = null;
+	}
+
+	// Back online: retry now instead of sitting out the remaining backoff.
+	function onOnline(): void {
+		if (closed || !reconnectTimer) return;
+		clearTimeout(reconnectTimer);
+		reconnectTimer = null;
+		attempt = 0;
+		connect();
+	}
+
 	function scheduleReconnect(): void {
 		status = 'reconnecting';
 		const backoff = Math.min(RECONNECT_MIN_MS * 2 ** attempt, RECONNECT_MAX_MS);
 		attempt++;
 		// Full-jitter backoff, no separate jitter config knob — good enough for a
 		// handful of viewer tabs reconnecting to one DO.
-		reconnectTimer = setTimeout(connect, backoff / 2 + Math.random() * (backoff / 2));
+		reconnectTimer = setTimeout(
+			() => {
+				reconnectTimer = null;
+				connect();
+			},
+			backoff / 2 + Math.random() * (backoff / 2)
+		);
 	}
 
 	function open(path: string): void {
@@ -196,10 +260,13 @@ export function createLiveClient(projectId: string): LiveClient {
 	function close(): void {
 		closed = true;
 		if (reconnectTimer) clearTimeout(reconnectTimer);
+		stopHeartbeat();
+		removeEventListener('online', onOnline);
 		ws?.close();
 		ws = null;
 	}
 
+	addEventListener('online', onOnline);
 	connect();
 
 	return {

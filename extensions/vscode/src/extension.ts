@@ -897,7 +897,7 @@ async function copyInvite(): Promise<void> {
 		const fullUrl = toHttpUrl(activeConfig.server).replace(/\/+$/, "") + invite.url;
 		await vscode.env.clipboard.writeText(fullUrl);
 		const expires = new Date(invite.expiresAt * 1000).toLocaleString();
-		vscode.window.showInformationMessage(`Sourcebeam: link copied to clipboard (valid until ${expires}).`);
+		vscode.window.showInformationMessage(`Sourcebeam: link copied to clipboard (can be opened until ${expires}).`);
 	} catch (err) {
 		vscode.window.showErrorMessage(`Sourcebeam: failed to get an invite — ${errDetail(err)}`);
 	}

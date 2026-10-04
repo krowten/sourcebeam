@@ -48,13 +48,22 @@
 		}
 	}
 
+	// Once access is gone for good the socket state is beside the point: say so instead of
+	// showing a "reconnecting…" that will never succeed.
+	const ended = $derived(client.projectDeleted || client.inviteInvalid);
 	const statusLabel = $derived(
-		client.status === 'live'
-			? 'live'
-			: client.status === 'reconnecting'
-				? 'reconnecting…'
-				: 'connecting…'
+		client.projectDeleted
+			? 'deleted'
+			: client.inviteInvalid
+				? 'no access'
+				: client.status === 'live'
+					? 'live'
+					: client.status === 'reconnecting'
+						? 'reconnecting…'
+						: 'connecting…'
 	);
+	const live = $derived(!ended && client.status === 'live');
+	const waiting = $derived(!ended && client.status !== 'live');
 
 	$effect(() => {
 		if (openedInitial || client.paths.length === 0) return;
@@ -102,19 +111,24 @@
 			<span
 				data-testid="status"
 				class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
-				class:bg-green-100={client.status === 'live'}
-				class:text-green-800={client.status === 'live'}
-				class:dark:bg-green-900={client.status === 'live'}
-				class:dark:text-green-300={client.status === 'live'}
-				class:bg-yellow-100={client.status !== 'live'}
-				class:text-yellow-800={client.status !== 'live'}
-				class:dark:bg-yellow-900={client.status !== 'live'}
-				class:dark:text-yellow-300={client.status !== 'live'}
+				class:bg-green-100={live}
+				class:text-green-800={live}
+				class:dark:bg-green-900={live}
+				class:dark:text-green-300={live}
+				class:bg-yellow-100={waiting}
+				class:text-yellow-800={waiting}
+				class:dark:bg-yellow-900={waiting}
+				class:dark:text-yellow-300={waiting}
+				class:bg-gray-100={ended}
+				class:text-gray-600={ended}
+				class:dark:bg-gray-700={ended}
+				class:dark:text-gray-300={ended}
 			>
 				<span
 					class="h-1.5 w-1.5 rounded-full"
-					class:bg-green-500={client.status === 'live'}
-					class:bg-yellow-500={client.status !== 'live'}
+					class:bg-green-500={live}
+					class:bg-yellow-500={waiting}
+					class:bg-gray-400={ended}
 				></span>
 				{statusLabel}
 			</span>
@@ -160,7 +174,8 @@
 			data-testid="invite-invalid"
 			class="flex flex-1 items-center justify-center text-gray-500 dark:text-gray-400"
 		>
-			This invite link is invalid or has expired — ask the host for a new one
+			No access — the invite link has expired or the host revoked access. Ask the host for a new
+			link.
 		</div>
 	{:else if client.treeReceived && client.paths.length === 0}
 		<div

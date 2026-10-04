@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1
+
+- Invite links: the lifetime setting now limits how long a link can be opened. A viewer who
+  opened it in time stays in the project — a tab reopened the next day still works — until you
+  revoke invite links or delete the project. Needs the matching server update (`bun run deploy`).
+- Viewer page reconnects on its own after a network drop instead of needing a reload, and says
+  "no access" or "deleted" instead of "reconnecting…" once access is gone for good (server
+  update).
+- The listing gains a Privacy section: the extension talks only to the server you configure and
+  sends no telemetry.
+
 ## 0.1.0
 
 Initial release.

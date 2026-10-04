@@ -113,7 +113,7 @@ export function renderSettingsHtml(webview: vscode.Webview): string {
 	<div class="field">
 		<label for="ttl">Invite link lifetime (hours)</label>
 		<input type="number" id="ttl" min="1" max="720" step="1">
-		<div class="hint">Per-workspace — 6 hours unless you change it here.</div>
+		<div class="hint">How long a new link can be opened. Per-workspace — 6 hours unless you change it here. Viewers who already joined stay until you revoke invite links.</div>
 		<div class="error" id="ttl-error"></div>
 	</div>
 

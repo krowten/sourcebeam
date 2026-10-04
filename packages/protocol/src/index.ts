@@ -5,6 +5,13 @@ export * from './invite';
 export const DEBOUNCE_MS = 300;
 export const RECONNECT_MIN_MS = 1000;
 export const RECONNECT_MAX_MS = 30000;
+// Viewer heartbeat. A dropped network rarely closes the socket on its own — the browser keeps a
+// half-open connection around for minutes — so the viewer pings and treats a missing pong as a
+// dead link. The server answers with a hibernation auto-response, never waking the DO.
+export const PING = 'ping';
+export const PONG = 'pong';
+export const HEARTBEAT_INTERVAL_MS = 20000;
+export const HEARTBEAT_TIMEOUT_MS = 10000;
 
 // Host (Watcher) Messages
 export type SnapshotBegin = { type: 'snapshot_begin' };
