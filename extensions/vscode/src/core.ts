@@ -31,6 +31,8 @@ export type Config = { server: string; token: string; project: string };
  * string that still "looks like" the same server. Normalizing to a bare origin here, once,
  * means every later use of `server` (the WS URL, the token lookup, the copy-invite link) is
  * built from the same validated value instead of re-trusting the raw setting each time. */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
 export function validateServerUrl(input: string): string {
 	let url: URL;
 	try {
@@ -40,6 +42,11 @@ export function validateServerUrl(input: string): string {
 	}
 	if (url.protocol !== "ws:" && url.protocol !== "wss:") {
 		throw new Error("sourcebeam.serverUrl: must start with ws:// or wss://.");
+	}
+	// Plain ws:// would send the code and the host token unencrypted. A deployed Worker is always
+	// wss://; ws:// only exists for a local `wrangler dev`.
+	if (url.protocol === "ws:" && !LOCAL_HOSTS.has(url.hostname)) {
+		throw new Error("sourcebeam.serverUrl: ws:// is only allowed for localhost — use wss://.");
 	}
 	if (url.username || url.password) {
 		throw new Error("sourcebeam.serverUrl: must not include a username or password.");

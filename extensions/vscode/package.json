@@ -2,12 +2,12 @@
   "name": "sourcebeam-vscode",
   "displayName": "Sourcebeam",
   "description": "Live code sharing without the screen share: broadcast your project to a read-only browser viewer for teaching, mentoring, code walkthroughs and pair programming.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "krowten",
   "author": {
     "name": "krowten",
     "email": "me@krowten.dev",
-    "url": "https://krowten.dev"
+    "url": "https://github.com/krowten"
   },
   "license": "MIT",
   "icon": "icon.png",
@@ -19,7 +19,7 @@
   "bugs": {
     "url": "https://github.com/krowten/sourcebeam/issues"
   },
-  "homepage": "https://github.com/krowten/sourcebeam#readme",
+  "homepage": "https://github.com/krowten/sourcebeam/tree/main/extensions/vscode#readme",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -32,7 +32,6 @@
   "categories": ["Education"],
   "keywords": [
     "code sharing",
-    "live share",
     "live coding",
     "read-only",
     "teaching",

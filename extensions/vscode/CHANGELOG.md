@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.2
+
+- Editing a `.gitignore` while broadcasting now takes effect at once: files it newly excludes
+  are removed from the server, files it no longer excludes are sent. Before, the rules were
+  read only when broadcasting started.
+- Plain `ws://` server URLs are accepted only for `localhost`; anything else needs `wss://`, so
+  code and the host token never travel unencrypted.
+- A clearer Privacy section: where the data goes, who can read it and how long it's kept.
+- Third-party notices for the bundled `ignore` library.
+
 ## 0.1.1
 
 - Invite links: the lifetime setting now limits how long a link can be opened. A viewer who

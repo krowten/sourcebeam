@@ -61,13 +61,13 @@ Run with `--dry-run` first if you'd rather see the plan before anything touches 
 Then:
 
 1. **Install the editor extension.**
-   - **JetBrains IDEs:** from [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34643-sourcebeam).
+   - **VS Code:** from the
+     [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=krowten.sourcebeam-vscode):
+     search for `Sourcebeam` in the Extensions view, or run
+     `code --install-extension krowten.sourcebeam-vscode`.
    - **VSCodium, Cursor and other VS Code forks:** search for `Sourcebeam` in the Extensions
      view; they install it from [Open VSX](https://open-vsx.org/extension/krowten/sourcebeam-vscode).
-   - **VS Code:** the Visual Studio Marketplace listing is under review. Until it's up,
-     download `sourcebeam-vscode-<version>.vsix` from
-     [GitHub Releases](https://github.com/krowten/sourcebeam/releases), then Extensions view →
-     `…` menu → **Install from VSIX…** (or `code --install-extension <file>.vsix`).
+   - **JetBrains IDEs:** from [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34643-sourcebeam).
    - **Any editor, from source:** see [CONTRIBUTING.md](CONTRIBUTING.md).
 
    Then open **Settings…** in the Sourcebeam sidebar (VS Code) or **Settings | Tools |

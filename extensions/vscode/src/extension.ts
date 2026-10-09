@@ -319,12 +319,36 @@ async function onCoalesced(rel: string): Promise<void> {
 	// can both happen while readFileEntry() is in flight. Re-check identity after, and drop the
 	// read instead of sending it to a dead/unrelated connection.
 	const conn = activeConn;
-	if (!conn || !activeFolder) return; // disconnected: next reconnect re-snapshots everything
-	const uri = vscode.Uri.joinPath(activeFolder.uri, ...rel.split("/"));
-	const entry = await readFileEntry(activeFolder, uri, rel);
+	const folder = activeFolder;
+	if (!conn || !folder) return; // disconnected: next reconnect re-snapshots everything
+	const uri = vscode.Uri.joinPath(folder.uri, ...rel.split("/"));
+	const entry = await readFileEntry(folder, uri, rel);
 	if (conn !== activeConn) return;
 	if (!entry) conn.send(JSON.stringify({ type: "file_delete", path: rel }));
 	else conn.send(JSON.stringify({ type: "file_put", path: rel, hash: entry.hash, content: entry.content }));
+	if (rel === ".gitignore" || rel.endsWith("/.gitignore")) await refreshIgnore(conn, folder);
+}
+
+/** A .gitignore changed mid-broadcast: rebuild the matcher and resend the snapshot, so a file
+ * that just became ignored is dropped from the server (the snapshot's stale cleanup) and one that
+ * stopped being ignored shows up — instead of the rules only applying after a restart. */
+async function refreshIgnore(conn: Conn, folder: vscode.WorkspaceFolder): Promise<void> {
+	const matcher = await loadWorkspaceIgnoreMatcher(folder);
+	ignoreMatcher = matcher;
+	if (conn !== activeConn) return; // a reconnect re-snapshots with the new rules anyway
+	snapshotting = true;
+	try {
+		await takeSnapshot(folder, matcher, conn);
+	} catch (err) {
+		if (isFatalError(err)) {
+			vscode.window.showErrorMessage(errDetail(err));
+			stopBroadcasting();
+		} else {
+			log("WARN", `re-snapshot after a .gitignore change failed (${errDetail(err)})`);
+		}
+	} finally {
+		snapshotting = false;
+	}
 }
 
 function handleIncoming(raw: string): void {

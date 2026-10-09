@@ -362,6 +362,8 @@ class BroadcastService(private val project: Project) : Disposable {
 		}
 
 		conn.send(Json.obj("type" to "snapshot_begin"))
+		// The server drops whatever this snapshot doesn't resend, so start the mirror list over too.
+		sent.clear()
 		var put = 0
 		var skipped = 0
 		for ((relPath, file) in files) {
@@ -518,6 +520,26 @@ class BroadcastService(private val project: Project) : Disposable {
 		} else {
 			conn.send(Json.obj("type" to "file_put", "path" to rel, "hash" to entry.hash, "content" to entry.content))
 			sent.add(rel)
+		}
+		if (rel == ".gitignore" || rel.endsWith("/.gitignore")) refreshIgnore(conn, base)
+	}
+
+	/** A .gitignore changed mid-broadcast: rebuild the matcher and resend the snapshot, so a file
+	 * that just became ignored is dropped from the server (the snapshot's stale cleanup) and one
+	 * that stopped being ignored shows up — instead of the rules only applying after a restart. */
+	private fun refreshIgnore(conn: WsConnection, base: VirtualFile) {
+		ignore = IgnoreMatcher.parseNested(readGitignoreSources(base))
+		if (conn !== connection) return // a reconnect re-snapshots with the new rules anyway
+		try {
+			snapshotting = true
+			takeSnapshot(conn)
+		} catch (e: FatalException) {
+			notify(e.message ?: "Snapshot failed.", NotificationType.ERROR)
+			stop()
+		} catch (e: Exception) {
+			log.warn("re-snapshot after a .gitignore change failed (${e.message})")
+		} finally {
+			snapshotting = false
 		}
 	}
 

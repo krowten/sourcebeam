@@ -43,12 +43,15 @@ class SourcebeamConfigurable(private val project: Project) : BoundConfigurable("
 					)
 					.validationOnInput { field ->
 						val value = field.text.trim()
-						when {
-							value.isEmpty() -> null
-							!value.startsWith("ws://") && !value.startsWith("wss://") ->
-								ValidationInfo("Must start with ws:// or wss://", field)
-
-							else -> null
+						if (value.isEmpty()) {
+							null
+						} else {
+							try {
+								validateServerUrl(value)
+								null
+							} catch (e: IllegalArgumentException) {
+								ValidationInfo(e.message?.removePrefix("Server URL: ") ?: "Invalid server URL", field)
+							}
 						}
 					}
 					.component

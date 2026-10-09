@@ -89,6 +89,9 @@ Three filters, in order:
    (not valid UTF-8, or containing NUL bytes) are skipped, and so are files over 512 KB — a cap
    the Worker publishes as the first frame of every connection.
 
+Editing a `.gitignore` while broadcasting takes effect at once: files it now excludes are
+removed from the server, files it no longer excludes are sent.
+
 A project over 500 broadcastable files is refused rather than uploaded; add the extras to
 `.gitignore`.
 

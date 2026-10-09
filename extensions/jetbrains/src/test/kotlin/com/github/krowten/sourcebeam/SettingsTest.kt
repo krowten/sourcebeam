@@ -15,6 +15,15 @@ class SettingsTest {
 	}
 
 	@Test
+	fun `plain ws is only allowed for localhost`() {
+		assertEquals("ws://127.0.0.1:4173", validateServerUrl("ws://127.0.0.1:4173"))
+		assertEquals("ws://[::1]:4173", validateServerUrl("ws://[::1]:4173"))
+		for (url in listOf("ws://sourcebeam.example.workers.dev", "ws://192.168.1.10:8787", "ws://localhost.evil.dev")) {
+			assertThrows(IllegalArgumentException::class.java) { validateServerUrl(url) }
+		}
+	}
+
+	@Test
 	fun `validateServerUrl rejects anything beyond a bare origin`() {
 		assertThrows(IllegalArgumentException::class.java) { validateServerUrl("not a url") }
 		assertThrows(IllegalArgumentException::class.java) { validateServerUrl("http://h") }

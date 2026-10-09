@@ -8,6 +8,7 @@
 // webview-ui-toolkit or other dependency — four fields and three buttons don't need one, and the
 // variables already make it look native in whatever theme is active.
 import * as vscode from "vscode";
+import { randomBytes } from "node:crypto";
 
 export type SettingsPanelState = {
 	server: string;
@@ -30,10 +31,7 @@ export type ToWebviewMessage =
 	| { command: "saved" };
 
 function nonce(): string {
-	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-	let text = "";
-	for (let i = 0; i < 32; i++) text += chars.charAt(Math.floor(Math.random() * chars.length));
-	return text;
+	return randomBytes(24).toString("base64url");
 }
 
 export function renderSettingsHtml(webview: vscode.Webview): string {

@@ -261,6 +261,14 @@ test("validateServerUrl: rejects anything beyond a bare origin", () => {
 	expect(() => validateServerUrl("wss://user:pass@h")).toThrow(/username or password/);
 });
 
+test("validateServerUrl: plain ws:// only for localhost, never for a remote host", () => {
+	expect(validateServerUrl("ws://127.0.0.1:4173")).toBe("ws://127.0.0.1:4173");
+	expect(validateServerUrl("ws://[::1]:4173")).toBe("ws://[::1]:4173");
+	expect(() => validateServerUrl("ws://sourcebeam.example.workers.dev")).toThrow(/only allowed for localhost/);
+	expect(() => validateServerUrl("ws://192.168.1.10:8787")).toThrow(/only allowed for localhost/);
+	expect(() => validateServerUrl("ws://localhost.evil.dev")).toThrow(/only allowed for localhost/);
+});
+
 test("hostTokenKey: one key per origin, distinct origins never collide", () => {
 	expect(hostTokenKey("wss://a.example.dev")).not.toBe(hostTokenKey("wss://b.example.dev"));
 	expect(hostTokenKey("wss://h")).toBe(hostTokenKey("wss://h/"));

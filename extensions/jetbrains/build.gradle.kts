@@ -49,6 +49,13 @@ intellijPlatform {
 		version = providers.gradleProperty("pluginVersion")
 		changeNotes =
 			"""
+			<h3>0.1.2</h3>
+			<ul>
+				<li>Editing a .gitignore while broadcasting now takes effect at once: files it newly
+				excludes are removed from the server, files it no longer excludes are sent.</li>
+				<li>Plain ws:// server URLs are accepted only for localhost; anything else needs
+				wss://, so code and the host token never travel unencrypted.</li>
+			</ul>
 			<h3>0.1.1</h3>
 			<ul>
 				<li>Invite links: the lifetime setting now limits how long a link can be opened. A

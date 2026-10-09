@@ -136,6 +136,8 @@ fun sanitizeProjectId(name: String): String {
 /** Validated to a bare ws(s) origin — ws(s)://host[:port], no path, query, fragment or embedded
  * credentials. The host token is scoped to exactly this string (see [HostToken]), so it has to
  * be normalized once, here, rather than trusted as whatever free-form text sits in the setting. */
+private val LOCAL_HOSTS = setOf("localhost", "127.0.0.1", "[::1]")
+
 fun validateServerUrl(input: String): String {
 	val trimmed = input.trim()
 	val uri = try {
@@ -151,6 +153,11 @@ fun validateServerUrl(input: String): String {
 		throw IllegalArgumentException("Server URL: must not include a username or password.")
 	}
 	val host = uri.host
+	// Plain ws:// would send the code and the host token unencrypted. A deployed Worker is always
+	// wss://; ws:// only exists for a local `wrangler dev`.
+	if (scheme == "ws" && host?.lowercase() !in LOCAL_HOSTS) {
+		throw IllegalArgumentException("Server URL: ws:// is only allowed for localhost — use wss://.")
+	}
 	if (host.isNullOrEmpty() || (uri.rawPath.isNotEmpty() && uri.rawPath != "/") || uri.rawQuery != null || uri.rawFragment != null) {
 		throw IllegalArgumentException("Server URL: must be an origin only — no path, query or fragment.")
 	}

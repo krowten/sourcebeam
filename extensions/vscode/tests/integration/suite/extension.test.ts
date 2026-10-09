@@ -241,6 +241,44 @@ suite("sourcebeam extension (integration)", function () {
 		}
 	});
 
+	test(".gitignore edited mid-broadcast: a newly ignored file is removed from the server", async () => {
+		const project = uniqueProjectId("ign");
+		await setConfig(project);
+		const folder = vscode.workspace.workspaceFolders![0]!;
+		const secret = vscode.Uri.joinPath(folder.uri, "notes", "secret.txt");
+		const gitignore = vscode.Uri.joinPath(folder.uri, ".gitignore");
+		const originalIgnore = await vscode.workspace.fs.readFile(gitignore);
+		await vscode.workspace.fs.writeFile(secret, new TextEncoder().encode("api key\n"));
+
+		await vscode.commands.executeCommand("sourcebeam.start");
+		try {
+			const cookie = await exchangeInviteForCookie(await waitForInviteUrl(project));
+			const { ws, messages } = await connectViewerWithTree(project, cookie, ["notes/secret.txt"]);
+			try {
+				const seen = messages.length;
+				await vscode.workspace.fs.writeFile(
+					gitignore,
+					new TextEncoder().encode(`${new TextDecoder().decode(originalIgnore)}notes/\n`),
+				);
+				// The re-snapshot ends with a fresh full `tree` for viewers; the secret must be gone.
+				await waitFor(
+					() =>
+						messages
+							.slice(seen)
+							.some((m) => m.type === "tree" && !(m.paths as string[]).includes("notes/secret.txt")),
+					10_000,
+					"a tree without notes/secret.txt after the .gitignore edit",
+				);
+			} finally {
+				ws.close();
+			}
+		} finally {
+			await vscode.commands.executeCommand("sourcebeam.stop");
+			await vscode.workspace.fs.writeFile(gitignore, originalIgnore);
+			await vscode.workspace.fs.delete(vscode.Uri.joinPath(folder.uri, "notes"), { recursive: true });
+		}
+	});
+
 	test("delete project: connected viewer receives project_deleted", async () => {
 		const project = uniqueProjectId("del");
 		await setConfig(project);
