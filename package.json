@@ -3,11 +3,11 @@
   "description": "A live, read-only mirror of a project folder in the browser",
   "version": "0.1.0",
   "license": "MIT",
- 	"author": {
-		"name": "krowten",
-		"email": "me@krowten.dev",
-		"url": "https://github.com/krowten"
-	},
+  "author": {
+    "name": "krowten",
+    "email": "me@krowten.dev",
+    "url": "https://github.com/krowten"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/krowten/sourcebeam"
@@ -31,7 +31,7 @@
     "format": "bun run --cwd apps/web format"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.2",
+    "@types/bun": "^1.4.4",
     "typescript": "^6.0.3"
   }
 }

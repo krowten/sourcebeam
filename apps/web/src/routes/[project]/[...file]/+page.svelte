@@ -2,19 +2,19 @@
 	import { onDestroy } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { page } from '$app/state';
-	import { replaceState } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import favicon from '../../../lib/assets/favicon.svg';
-	import { createLiveClient } from '../../../lib/live-client.svelte';
+	import favicon from '#lib/assets/favicon.svg';
+	import { createLiveClient } from '#lib/live-client.svelte.ts';
 	import {
 		ancestorsOf,
 		buildTree,
 		computeOpenDirs,
 		encodePathForUrl,
 		firstFile
-	} from '../../../lib/tree';
-	import Tree from '../../../lib/components/Tree.svelte';
-	import CodeView from '../../../lib/components/CodeView.svelte';
+	} from '#lib/tree.ts';
+	import Tree from '#lib/components/Tree.svelte';
+	import CodeView from '#lib/components/CodeView.svelte';
 
 	// `project` is a required route segment for this page, always present.
 	const projectId = page.params.project as string;
@@ -76,11 +76,13 @@
 
 	$effect(() => {
 		if (!client.openPath) return;
+
 		const url = resolve('/[project]/[...file]', {
 			project: projectId,
 			file: encodePathForUrl(client.openPath)
 		});
-		if (page.url.pathname !== url) replaceState(url, {});
+
+		if (page.url.pathname !== url) goto(url, { shallow: true, replace: true });
 	});
 
 	function toggleTheme(): void {

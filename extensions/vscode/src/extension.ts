@@ -748,7 +748,7 @@ function inviteTtlHours(): number {
 async function pickServer(): Promise<void> {
 	const cfg = vscode.workspace.getConfiguration("sourcebeam");
 	const value = await vscode.window.showInputBox({
-		prompt: "Server URL, e.g. wss://sourcebeam.<sub>.workers.dev",
+		prompt: "Server URL, e.g. wss://sourcebeam.example.com",
 		value: cfg.get<string>("serverUrl") ?? "",
 		validateInput: (v) => {
 			if (v === "") return null;

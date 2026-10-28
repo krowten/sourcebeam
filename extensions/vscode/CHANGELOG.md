@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3
+
+- The listing is now called "Sourcebeam: Live Code Sharing", so it turns up when you search
+  the Extensions view for what it does.
+- The server URL hint uses a neutral example address.
+- Bundled `ignore` library updated to 7.0.14.
+- Server update (`bun run deploy`): the viewer moves to SvelteKit 3 with updated dependencies,
+  and the server no longer logs an error when a viewer closes its tab while a reply is on the
+  way. `bun run undeploy` explains what to type when asking for confirmation.
+
 ## 0.1.2
 
 - Editing a `.gitignore` while broadcasting now takes effect at once: files it newly excludes

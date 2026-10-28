@@ -5,8 +5,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 
 plugins {
 	id("java")
-	id("org.jetbrains.kotlin.jvm") version "2.4.10"
-	id("org.jetbrains.intellij.platform") version "2.18.1"
+	id("org.jetbrains.kotlin.jvm") version "2.4.21"
+	id("org.jetbrains.intellij.platform") version "2.19.0"
 }
 
 group = providers.gradleProperty("pluginGroup").get()
@@ -49,6 +49,14 @@ intellijPlatform {
 		version = providers.gradleProperty("pluginVersion")
 		changeNotes =
 			"""
+			<h3>0.1.3</h3>
+			<ul>
+				<li>Built against IntelliJ Platform 2026.2 and verified on every supported IDE from
+				2024.3 to 2026.2.</li>
+				<li>Server update (<code>bun run deploy</code>): the viewer moves to SvelteKit 3 with
+				updated dependencies, and the server no longer logs an error when a viewer closes its
+				tab while a reply is on the way.</li>
+			</ul>
 			<h3>0.1.2</h3>
 			<ul>
 				<li>Editing a .gitignore while broadcasting now takes effect at once: files it newly

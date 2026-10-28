@@ -62,7 +62,7 @@ export function computeOpenDirs(
 
 /** Encodes a file path for use as the URL segments after /:project/ — segment by segment, so
  * `/` stays a separator. Without this, a path containing `#`, `?` or `%` gets misread as URL
- * syntax the moment it's written to the address bar (replaceState in +page.svelte): `#` starts
+ * syntax the moment it's written to the address bar (shallow goto in +page.svelte): `#` starts
  * a fragment, `?` starts a query string, and a bare `%` not followed by two hex digits is an
  * invalid escape — any of these truncates or corrupts the path a reload or shared link would
  * try to reopen. SvelteKit decodes the `[...file]` route param back to the original string, so

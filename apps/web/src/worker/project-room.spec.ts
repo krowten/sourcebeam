@@ -210,6 +210,25 @@ describe('ProjectRoom', () => {
 		expect((await viewerClosed).code).toBe(4001);
 	});
 
+	test('a reply to a viewer that closed while its message was being handled does not throw', async () => {
+		const host = await connect('closed-reply', { host: 'valid-host' });
+		await host.next(); // policy
+		host.send(put('a.txt', 'A1'));
+		await syncHost(host);
+		const viewer = await connectViewer(host, 'closed-reply');
+		await viewer.next(); // policy
+		await viewer.next(); // tree
+
+		const stub = env.PROJECT_ROOM.get(env.PROJECT_ROOM.idFromName('closed-reply'));
+		await runInDurableObject(stub, async (instance, state) => {
+			const [ws] = state.getWebSockets('viewer');
+			ws.close(1000, 'tab closed');
+			// Both replies — the file and an error — go to a socket that is already closed.
+			await instance.webSocketMessage(ws, JSON.stringify({ type: 'subscribe', path: 'a.txt' }));
+			await instance.webSocketMessage(ws, 'not json');
+		});
+	});
+
 	test('invite: an expired viewer socket is also cut off on its own next inbound message', async () => {
 		const host = await connect('expiry-2', { host: 'valid-host' });
 		await host.next(); // policy

@@ -256,7 +256,8 @@ export class ProjectRoom extends DurableObject<Env> {
 		attachment.subscribedPath = path;
 		attachment.errors = 0;
 		ws.serializeAttachment(attachment);
-		ws.send(
+		this.trySend(
+			ws,
 			JSON.stringify({
 				type: 'file',
 				path,
@@ -351,7 +352,8 @@ export class ProjectRoom extends DurableObject<Env> {
 		const ttl = Math.max(60, Math.min(Math.floor(Number(msg.ttlSeconds)) || 3600, 30 * 24 * 3600));
 		const expiry = Math.floor(Date.now() / 1000) + ttl;
 		const token = await signInvite(project, expiry, await this.viewSecret());
-		ws.send(
+		this.trySend(
+			ws,
 			JSON.stringify({
 				type: 'invite',
 				url: `/${project}?token=${token}`,
@@ -368,7 +370,7 @@ export class ProjectRoom extends DurableObject<Env> {
 		}
 		await this.rotateViewSecret();
 		for (const s of this.ctx.getWebSockets('viewer')) s.close(4001, 'invites revoked');
-		ws.send(JSON.stringify({ type: 'ok' } satisfies ServerMessage));
+		this.trySend(ws, JSON.stringify({ type: 'ok' } satisfies ServerMessage));
 	}
 
 	private async handleDeleteProject(ws: WebSocket) {
@@ -487,7 +489,7 @@ export class ProjectRoom extends DurableObject<Env> {
 	}
 
 	private sendError(ws: WebSocket, message: string) {
-		ws.send(JSON.stringify({ type: 'error', message } satisfies ServerMessage));
+		this.trySend(ws, JSON.stringify({ type: 'error', message } satisfies ServerMessage));
 	}
 
 	// Sends the error and, for viewers only, counts it toward the too-many-errors close
@@ -548,7 +550,8 @@ export class ProjectRoom extends DurableObject<Env> {
 	}
 
 	// A socket can flip to CLOSED between getWebSockets() and send() (client disconnected
-	// mid-broadcast); swallow that so one dead peer doesn't abort delivery to the rest.
+	// mid-broadcast), or while its own message was being handled (a viewer closing the tab right
+	// after `subscribe`); swallow that so a dead peer doesn't abort delivery or throw an uncaught error.
 	private trySend(ws: WebSocket, payload: string) {
 		try {
 			ws.send(payload);

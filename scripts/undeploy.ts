@@ -59,8 +59,10 @@ if (dryRun) {
 }
 
 if (!yes) {
-	const answer = prompt(`Type the Worker name (${workerName}) to confirm:`);
-	if (answer?.trim() !== workerName) fail("confirmation didn't match — nothing was deleted.");
+	// No default on purpose: the name has to be typed out, so a stray Enter can't delete anything.
+	const answer = prompt(`To confirm, type ${bold(workerName)} and press Enter:`)?.trim();
+	if (!answer) fail(`nothing typed — nothing was deleted. Run it again and type ${workerName}, or pass --yes.`);
+	if (answer !== workerName) fail(`"${answer}" doesn't match ${workerName} — nothing was deleted.`);
 }
 
 if (workerExists) {

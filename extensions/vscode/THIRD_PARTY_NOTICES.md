@@ -2,7 +2,7 @@
 
 The extension bundles the following third-party code into `dist/extension.js`.
 
-## ignore 7.0.9
+## ignore 7.0.14
 
 https://github.com/kaelzhang/node-ignore
 

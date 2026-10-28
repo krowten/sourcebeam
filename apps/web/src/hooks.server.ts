@@ -1,4 +1,4 @@
-import type { Handle } from '@sveltejs/kit';
+import type { Handle } from '@sveltejs/kit/hooks';
 
 // The viewer is anonymous — access is granted by the signed invite cookie the Worker sets,
 // not by a user account. This hook only carries the theme preference into the served HTML.

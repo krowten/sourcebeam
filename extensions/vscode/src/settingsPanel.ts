@@ -96,7 +96,7 @@ export function renderSettingsHtml(webview: vscode.Webview): string {
 
 	<div class="field">
 		<label for="server">Server URL</label>
-		<input type="text" id="server" placeholder="wss://sourcebeam.&lt;sub&gt;.workers.dev">
+		<input type="text" id="server" placeholder="wss://sourcebeam.example.com">
 		<div class="hint">Global — shared by every workspace on this machine.</div>
 		<div class="error" id="server-error"></div>
 	</div>
