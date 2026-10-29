@@ -279,6 +279,54 @@ suite("sourcebeam extension (integration)", function () {
 		}
 	});
 
+	// The watcher reports a deleted or renamed directory as one event for the directory itself,
+	// never for the files inside it — they have to be fanned out explicitly.
+	test("directory delete and rename: files under it follow on the server", async () => {
+		const project = uniqueProjectId("dir");
+		await setConfig(project);
+		const folder = vscode.workspace.workspaceFolders![0]!;
+		const write = (rel: string, text: string) =>
+			vscode.workspace.fs.writeFile(vscode.Uri.joinPath(folder.uri, ...rel.split("/")), new TextEncoder().encode(text));
+		await write("gone/a.txt", "a\n");
+		await write("gone/deep/b.txt", "b\n");
+		await write("old/c.txt", "c\n");
+
+		await vscode.commands.executeCommand("sourcebeam.start");
+		try {
+			const cookie = await exchangeInviteForCookie(await waitForInviteUrl(project));
+			const expected = ["gone/a.txt", "gone/deep/b.txt", "old/c.txt"];
+			const { ws, messages } = await connectViewerWithTree(project, cookie, expected);
+			try {
+				const removed = () => messages.flatMap((m) => (m.type === "tree_update" ? (m.removed as string[]) : []));
+				const added = () => messages.flatMap((m) => (m.type === "tree_update" ? (m.added as string[]) : []));
+
+				await vscode.workspace.fs.delete(vscode.Uri.joinPath(folder.uri, "gone"), { recursive: true });
+				await waitFor(
+					() => ["gone/a.txt", "gone/deep/b.txt"].every((p) => removed().includes(p)),
+					10_000,
+					"tree_update removing every file under the deleted directory",
+				);
+
+				await vscode.workspace.fs.rename(vscode.Uri.joinPath(folder.uri, "old"), vscode.Uri.joinPath(folder.uri, "new"));
+				await waitFor(
+					() => removed().includes("old/c.txt") && added().includes("new/c.txt"),
+					10_000,
+					"tree_update moving old/c.txt to new/c.txt",
+				);
+			} finally {
+				ws.close();
+			}
+		} finally {
+			await vscode.commands.executeCommand("sourcebeam.stop");
+			for (const dir of ["gone", "old", "new"]) {
+				await vscode.workspace.fs.delete(vscode.Uri.joinPath(folder.uri, dir), { recursive: true }).then(
+					() => undefined,
+					() => undefined,
+				);
+			}
+		}
+	});
+
 	test("delete project: connected viewer receives project_deleted", async () => {
 		const project = uniqueProjectId("del");
 		await setConfig(project);

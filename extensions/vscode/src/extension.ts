@@ -78,6 +78,8 @@ let activePolicy: FilePolicy = DEFAULT_POLICY;
 let ignoreMatcher: ((relPath: string) => boolean) | null = null;
 let coalescer: Coalescer | null = null;
 let snapshotting = false;
+/** Paths currently mirrored on the server — lets a directory delete fan out to its files. */
+const sent = new Set<string>();
 let backoffAbort: AbortController | null = null;
 let disposables: vscode.Disposable[] = [];
 let pendingInvite: { resolve: (msg: { url: string; expiresAt: number }) => void; reject: (err: Error) => void } | null = null;
@@ -217,6 +219,14 @@ async function isSymlink(uri: vscode.Uri): Promise<boolean> {
 	}
 }
 
+async function isDirectory(uri: vscode.Uri): Promise<boolean> {
+	try {
+		return ((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory) !== 0;
+	} catch {
+		return false;
+	}
+}
+
 /** True if `relDir` (posix, relative to `folder`; "" for the workspace root) or any of its
  * ancestors is a symlink. Memoized per directory so a workspace with many files under the same
  * directory doesn't re-stat every ancestor for every file. */
@@ -282,7 +292,9 @@ async function takeSnapshot(folder: vscode.WorkspaceFolder, ignored: (relPath: s
 	}
 
 	conn.send(JSON.stringify({ type: "snapshot_begin" }));
-	let sent = 0;
+	// The server drops whatever this snapshot doesn't resend, so start the mirror list over too.
+	sent.clear();
+	let put = 0;
 	let skipped = 0;
 	for (const uri of included) {
 		const rel = toRelPosix(uri);
@@ -292,10 +304,11 @@ async function takeSnapshot(folder: vscode.WorkspaceFolder, ignored: (relPath: s
 			continue;
 		}
 		conn.send(JSON.stringify({ type: "file_put", path: rel, hash: entry.hash, content: entry.content }));
-		sent++;
+		sent.add(rel);
+		put++;
 	}
 	conn.send(JSON.stringify({ type: "snapshot_end" }));
-	log("INFO", `snapshot: sent ${sent}, skipped ${skipped}`);
+	log("INFO", `snapshot: sent ${put}, skipped ${skipped}`);
 }
 
 // --- change detection -------------------------------------------------
@@ -304,6 +317,9 @@ function onMutate(uri: vscode.Uri): void {
 	if (uri.scheme !== "file" || !activeFolder) return;
 	if (vscode.workspace.getWorkspaceFolder(uri)?.uri.toString() !== activeFolder.uri.toString()) return;
 	const rel = toRelPosix(uri);
+	// A deleted or renamed directory arrives as a single event for the directory itself, so fan
+	// it out over everything mirrored beneath it — otherwise those files linger on the server.
+	for (const path of sent) if (path.startsWith(`${rel}/`)) coalescer?.touch(path);
 	if (ignoreMatcher?.(rel)) return;
 	coalescer?.touch(rel);
 }
@@ -322,10 +338,24 @@ async function onCoalesced(rel: string): Promise<void> {
 	const folder = activeFolder;
 	if (!conn || !folder) return; // disconnected: next reconnect re-snapshots everything
 	const uri = vscode.Uri.joinPath(folder.uri, ...rel.split("/"));
+	// The reverse case: a directory renamed or moved into the workspace arrives as one event too,
+	// so pick up its files that aren't mirrored yet (the symlink guard runs per file in readFileEntry).
+	if (await isDirectory(uri)) {
+		if (await isSymlink(uri)) return;
+		for (const child of await vscode.workspace.findFiles(new vscode.RelativePattern(uri, "**/*"))) {
+			if (!sent.has(toRelPosix(child))) onMutate(child);
+		}
+		return;
+	}
 	const entry = await readFileEntry(folder, uri, rel);
 	if (conn !== activeConn) return;
-	if (!entry) conn.send(JSON.stringify({ type: "file_delete", path: rel }));
-	else conn.send(JSON.stringify({ type: "file_put", path: rel, hash: entry.hash, content: entry.content }));
+	if (!entry) {
+		conn.send(JSON.stringify({ type: "file_delete", path: rel }));
+		sent.delete(rel);
+	} else {
+		conn.send(JSON.stringify({ type: "file_put", path: rel, hash: entry.hash, content: entry.content }));
+		sent.add(rel);
+	}
 	if (rel === ".gitignore" || rel.endsWith("/.gitignore")) await refreshIgnore(conn, folder);
 }
 

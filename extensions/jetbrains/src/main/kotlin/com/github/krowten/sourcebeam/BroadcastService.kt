@@ -387,13 +387,13 @@ class BroadcastService(private val project: Project) : Disposable {
 	 * entry. Symlinked entries are pruned the same way: a symlinked directory is never descended
 	 * into (both because its contents aren't really part of this project, and because a symlink
 	 * cycle back to an ancestor would otherwise recurse without end), and a symlinked file is
-	 * never collected.
+	 * never collected. `startRel` is `start`'s own path relative to the root, "" for the root.
 	 */
-	private fun collectFiles(base: VirtualFile): List<Pair<String, VirtualFile>> =
+	private fun collectFiles(start: VirtualFile, startRel: String = ""): List<Pair<String, VirtualFile>> =
 		inReadAction {
 			val out = ArrayList<Pair<String, VirtualFile>>()
 			val stack = ArrayDeque<Pair<String, VirtualFile>>()
-			stack.addLast("" to base)
+			stack.addLast(startRel to start)
 			while (stack.isNotEmpty()) {
 				val (prefix, dir) = stack.removeLast()
 				for (child in dir.children ?: emptyArray()) {
@@ -510,6 +510,13 @@ class BroadcastService(private val project: Project) : Disposable {
 		val base = root ?: return
 
 		val file = base.findFileByRelativePath(rel)
+		// The reverse of the fan-out in onVfsPath: a directory renamed or moved into the project
+		// arrives as one event too, so pick up its files that aren't mirrored yet.
+		if (file != null && inReadAction { file.isDirectory && !file.`is`(VFileProperty.SYMLINK) }) {
+			if (hasSymlinkAncestor(base, rel)) return
+			for ((path, _) in collectFiles(file, rel)) if (path !in sent) coalescer?.touch(path)
+			return
+		}
 		val entry = if (file == null) null else readEntry(file, rel)
 
 		if (conn !== connection) return

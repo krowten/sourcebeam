@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+- Deleting, renaming or moving a folder while broadcasting now updates the viewer: the files
+  under the old path are removed and the ones under the new path are sent. Before, a deleted
+  folder's files stayed on the server until broadcasting was restarted.
+
 ## 0.1.3
 
 - The listing is now called "Sourcebeam: Live Code Sharing", so it turns up when you search
