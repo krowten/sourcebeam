@@ -49,6 +49,11 @@ intellijPlatform {
 		version = providers.gradleProperty("pluginVersion")
 		changeNotes =
 			"""
+			<h3>0.1.4</h3>
+			<ul>
+				<li>Renaming or moving a folder while broadcasting now updates the viewer: the files
+				under the new path are sent along with the old ones being removed.</li>
+			</ul>
 			<h3>0.1.3</h3>
 			<ul>
 				<li>Built against IntelliJ Platform 2026.2 and verified on every supported IDE from
