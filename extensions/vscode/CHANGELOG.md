@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.5
+
+- Starting a broadcast against a server that can't be reached, or that isn't a Sourcebeam
+  server (an HTTP 404 and the like), now stops it with an error naming the address and the
+  reason. Before, it kept retrying silently and still showed Stop.
+- Copy Invite Link and Revoke Invite Links are only offered once the broadcast is connected.
+  Before that they say "not connected to the server yet" instead of a confusing error.
+- After a connection that was live drops, reconnecting starts again from the shortest wait.
+  Before, every drop in a long session waited longer than the last, up to 30 s. A warning
+  appears after three failed reconnects in a row.
+- A broadcast that gives up (rejected token, project taken over) releases its file watchers.
+- Server update (`bun run deploy`): a viewer's tab shows "no access" right away when you
+  revoke invite links, and closing a connection from the client side no longer takes ~10 s.
 ## 0.1.4
 
 - Deleting, renaming or moving a folder while broadcasting now updates the viewer: the files

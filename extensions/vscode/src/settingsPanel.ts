@@ -136,7 +136,7 @@ export function renderSettingsHtml(webview: vscode.Webview): string {
 			<button class="secondary" id="revoke">Revoke Invite Links</button>
 			<button class="secondary" id="delete">Delete Project</button>
 		</div>
-		<div class="hint">Both require broadcasting to be running.</div>
+		<div class="hint">Both require a live broadcast (connected to the server).</div>
 	</fieldset>
 
 	<script nonce="${n}">

@@ -3,10 +3,30 @@
 // would — as opposed to tests/core.test.ts, which only exercises the pure logic in src/core.ts.
 // Requires the local sourcebeam preview server on ws://localhost:4173 (see runner.ts).
 import * as assert from "node:assert/strict";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import * as vscode from "vscode";
 
+import {
+	afterSentinel,
+	clearConfig,
+	connectViewerWithTree,
+	exchangeInviteForCookie,
+	expectMessage,
+	removeQuietly,
+	setConfig,
+	sleep,
+	stub,
+	uniqueProjectId,
+	waitFor,
+	waitForInviteUrl,
+	withLiveViewer,
+	workspaceUri,
+	writeText,
+} from "./helpers";
+
 const EXTENSION_ID = "krowten.sourcebeam-vscode";
-const SERVER_URL = "ws://localhost:4173";
 const REQUIRED_COMMANDS = [
 	"sourcebeam.start",
 	"sourcebeam.stop",
@@ -18,127 +38,6 @@ const REQUIRED_COMMANDS = [
 	"sourcebeam.pickServer",
 	"sourcebeam.moreActions",
 ];
-
-type ServerMsg = { type: string; [key: string]: unknown };
-
-/** `messages.find(...)` only narrows on `type`, not on the rest of the shape (ServerMsg's other
- * fields are `unknown`) — this centralizes the one "trust the wire protocol" cast instead of
- * scattering `as {...}` casts (which TS rejects anyway: an index-signature type and a concrete
- * shape like `{ paths: string[] }` don't "sufficiently overlap" for a direct assertion). */
-function expectMessage<T extends ServerMsg>(messages: ServerMsg[], match: (m: ServerMsg) => boolean): T {
-	const msg = messages.find(match);
-	if (!msg) throw new Error(`expected a matching message among ${messages.length} received, found none`);
-	return msg as unknown as T;
-}
-
-function uniqueProjectId(prefix: string): string {
-	return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitFor(predicate: () => boolean, timeoutMs: number, message: string, intervalMs = 200): Promise<void> {
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		if (predicate()) return;
-		await sleep(intervalMs);
-	}
-	if (!predicate()) throw new Error(`timed out waiting for: ${message}`);
-}
-
-type StubbableMethod = "showErrorMessage" | "showInformationMessage" | "showWarningMessage" | "showInputBox";
-
-/** Manually swaps a vscode.window.* method for the duration of a test — there's no sinon here,
- * and the extension host's `vscode.window` namespace is a plain mutable object at runtime, so
- * direct assignment works. Always restore() in a `finally`. */
-function stub(method: StubbableMethod, impl: (...args: unknown[]) => unknown): { calls: unknown[][]; restore: () => void } {
-	const calls: unknown[][] = [];
-	const original = (vscode.window as unknown as Record<string, unknown>)[method];
-	(vscode.window as unknown as Record<string, unknown>)[method] = (...args: unknown[]) => {
-		calls.push(args);
-		return impl(...args);
-	};
-	return {
-		calls,
-		restore: () => {
-			(vscode.window as unknown as Record<string, unknown>)[method] = original;
-		},
-	};
-}
-
-async function setConfig(project: string): Promise<void> {
-	const cfg = vscode.workspace.getConfiguration("sourcebeam");
-	// Application-scoped: VS Code only accepts it in User settings (Global), not Workspace.
-	await cfg.update("serverUrl", SERVER_URL, vscode.ConfigurationTarget.Global);
-	await cfg.update("project", project, vscode.ConfigurationTarget.Workspace);
-}
-
-async function clearConfig(): Promise<void> {
-	const cfg = vscode.workspace.getConfiguration("sourcebeam");
-	await cfg.update("serverUrl", "", vscode.ConfigurationTarget.Global);
-	await cfg.update("project", "", vscode.ConfigurationTarget.Workspace);
-}
-
-/** Waits until sourcebeam.copyInvite actually mints and copies a link. start()'s broadcast
- * loop is fire-and-forget (the registered command handler discards startBroadcasting()'s
- * promise), so `executeCommand("sourcebeam.start")` resolves long before the connection is
- * live — poll copyInvite itself instead of any exposed extension state (there is none). */
-async function waitForInviteUrl(project: string, timeoutMs = 15_000): Promise<string> {
-	await vscode.env.clipboard.writeText("");
-	const prefix = `http://localhost:4173/${project}?token=`;
-	const deadline = Date.now() + timeoutMs;
-	while (Date.now() < deadline) {
-		await vscode.commands.executeCommand("sourcebeam.copyInvite");
-		const text = await vscode.env.clipboard.readText();
-		if (text.startsWith(prefix)) return text;
-		await sleep(400);
-	}
-	throw new Error("timed out waiting for sourcebeam.copyInvite to produce an invite link");
-}
-
-/** Mirrors what a browser does when it follows the invite link: GET it and keep the Set-Cookie
- * the worker/routing.ts token->cookie exchange returns, without ever loading the SvelteKit page. */
-async function exchangeInviteForCookie(inviteUrl: string): Promise<string> {
-	const res = await fetch(inviteUrl, { redirect: "manual" });
-	const setCookie = res.headers.get("set-cookie");
-	if (!setCookie) throw new Error(`invite exchange did not set a cookie (status ${res.status})`);
-	return setCookie.split(";")[0]!;
-}
-
-/** Connects a viewer WS and waits for a `tree` message that includes `expectPaths`. mint_invite
- * and the host's snapshot both ride the same open connection with no ordering guarantee
- * between them, so a viewer connecting right after the invite link works can still see a
- * `tree` from before the snapshot lands — retry the connection instead of trusting the first one. */
-async function connectViewerWithTree(
-	project: string,
-	cookie: string,
-	expectPaths: string[],
-	timeoutMs = 15_000,
-): Promise<{ ws: WebSocket; messages: ServerMsg[] }> {
-	const deadline = Date.now() + timeoutMs;
-	for (;;) {
-		const ws = new WebSocket(`ws://localhost:4173/ws/${project}`, { headers: { Cookie: cookie } });
-		const messages: ServerMsg[] = [];
-		ws.addEventListener("message", (ev) => messages.push(JSON.parse(String((ev as MessageEvent).data))));
-		await new Promise<void>((resolve, reject) => {
-			ws.addEventListener("open", () => resolve(), { once: true });
-			ws.addEventListener("error", () => reject(new Error("viewer ws failed to connect")), { once: true });
-		});
-		try {
-			await waitFor(() => messages.some((m) => m.type === "tree"), 3000, "tree message", 100);
-		} catch {
-			// no tree within this attempt's window — fall through and retry below
-		}
-		const tree = messages.find((m) => m.type === "tree") as { paths?: string[] } | undefined;
-		const ok = expectPaths.length === 0 || (tree?.paths && expectPaths.every((p) => tree.paths!.includes(p)));
-		if (ok) return { ws, messages };
-		ws.close();
-		if (Date.now() > deadline) throw new Error(`timed out waiting for tree to include ${expectPaths.join(", ")}`);
-		await sleep(400);
-	}
-}
 
 suite("sourcebeam extension (integration)", function () {
 	this.timeout(120_000);
@@ -210,6 +109,9 @@ suite("sourcebeam extension (integration)", function () {
 			assert.ok(tree.paths.includes(".prettierrc"), ".prettierrc (no extension) should be in the tree");
 			assert.ok(!tree.paths.includes("node_modules/junk.js"), "node_modules/junk.js must not sync");
 			assert.ok(!tree.paths.includes(".env"), ".env is in .gitignore and must not sync");
+			assert.ok(!tree.paths.some((p) => p.startsWith(".git/")), "nothing under .git/ is ever sent");
+			assert.ok(!tree.paths.includes("image.bin"), "binary files are skipped");
+			assert.ok(!tree.paths.includes("big.txt"), "files over the size cap are skipped");
 
 			ws.send(JSON.stringify({ type: "subscribe", path: "src/main.py" }));
 			await waitFor(() => messages.some((m) => m.type === "file" && m.path === "src/main.py"), 5000, "initial file content");
@@ -234,6 +136,7 @@ suite("sourcebeam extension (integration)", function () {
 
 			await vscode.commands.executeCommand("sourcebeam.stop");
 			const countAfterStop = messages.length;
+			await vscode.workspace.fs.writeFile(fileUri, new TextEncoder().encode("print('after stop')\n"));
 			await sleep(2000);
 			assert.equal(messages.length, countAfterStop, "no messages should arrive on the viewer after stop()");
 		} finally {
@@ -241,7 +144,7 @@ suite("sourcebeam extension (integration)", function () {
 		}
 	});
 
-	test(".gitignore edited mid-broadcast: a newly ignored file is removed from the server", async () => {
+	test(".gitignore edited mid-broadcast: newly ignored files leave the server, un-ignored ones return", async () => {
 		const project = uniqueProjectId("ign");
 		await setConfig(project);
 		const folder = vscode.workspace.workspaceFolders![0]!;
@@ -269,6 +172,17 @@ suite("sourcebeam extension (integration)", function () {
 					10_000,
 					"a tree without notes/secret.txt after the .gitignore edit",
 				);
+				// ...and the way back: a file the rules stop excluding is sent again.
+				const restored = messages.length;
+				await vscode.workspace.fs.writeFile(gitignore, originalIgnore);
+				await waitFor(
+					() =>
+						messages
+							.slice(restored)
+							.some((m) => m.type === "tree" && (m.paths as string[]).includes("notes/secret.txt")),
+					10_000,
+					"a tree with notes/secret.txt again once .gitignore no longer excludes it",
+				);
 			} finally {
 				ws.close();
 			}
@@ -279,51 +193,194 @@ suite("sourcebeam extension (integration)", function () {
 		}
 	});
 
+	test("single file: create, rename, move and delete reach the viewer", async () => {
+		try {
+			await withLiveViewer("file", ["README.md"], async ({ added, removed }) => {
+				await writeText("fresh.txt", "new\n");
+				await waitFor(() => added().includes("fresh.txt"), 10_000, "tree_update adding a newly created file");
+
+				await vscode.workspace.fs.rename(workspaceUri("fresh.txt"), workspaceUri("renamed.txt"));
+				await waitFor(
+					() => removed().includes("fresh.txt") && added().includes("renamed.txt"),
+					10_000,
+					"tree_update renaming fresh.txt to renamed.txt",
+				);
+
+				await vscode.workspace.fs.createDirectory(workspaceUri("moved"));
+				await vscode.workspace.fs.rename(workspaceUri("renamed.txt"), workspaceUri("moved/renamed.txt"));
+				await waitFor(
+					() => removed().includes("renamed.txt") && added().includes("moved/renamed.txt"),
+					10_000,
+					"tree_update moving renamed.txt into moved/",
+				);
+
+				await vscode.workspace.fs.delete(workspaceUri("moved/renamed.txt"));
+				await waitFor(() => removed().includes("moved/renamed.txt"), 10_000, "tree_update removing a deleted file");
+			});
+		} finally {
+			for (const rel of ["fresh.txt", "renamed.txt", "moved"]) await removeQuietly(rel);
+		}
+	});
+
 	// The watcher reports a deleted or renamed directory as one event for the directory itself,
 	// never for the files inside it — they have to be fanned out explicitly.
 	test("directory delete and rename: files under it follow on the server", async () => {
-		const project = uniqueProjectId("dir");
-		await setConfig(project);
-		const folder = vscode.workspace.workspaceFolders![0]!;
-		const write = (rel: string, text: string) =>
-			vscode.workspace.fs.writeFile(vscode.Uri.joinPath(folder.uri, ...rel.split("/")), new TextEncoder().encode(text));
-		await write("gone/a.txt", "a\n");
-		await write("gone/deep/b.txt", "b\n");
-		await write("old/c.txt", "c\n");
-
-		await vscode.commands.executeCommand("sourcebeam.start");
+		await writeText("gone/a.txt", "a\n");
+		await writeText("gone/deep/b.txt", "b\n");
+		await writeText("old/c.txt", "c\n");
 		try {
-			const cookie = await exchangeInviteForCookie(await waitForInviteUrl(project));
-			const expected = ["gone/a.txt", "gone/deep/b.txt", "old/c.txt"];
-			const { ws, messages } = await connectViewerWithTree(project, cookie, expected);
-			try {
-				const removed = () => messages.flatMap((m) => (m.type === "tree_update" ? (m.removed as string[]) : []));
-				const added = () => messages.flatMap((m) => (m.type === "tree_update" ? (m.added as string[]) : []));
-
-				await vscode.workspace.fs.delete(vscode.Uri.joinPath(folder.uri, "gone"), { recursive: true });
+			await withLiveViewer("dir", ["gone/a.txt", "gone/deep/b.txt", "old/c.txt"], async ({ added, removed }) => {
+				await vscode.workspace.fs.delete(workspaceUri("gone"), { recursive: true });
 				await waitFor(
 					() => ["gone/a.txt", "gone/deep/b.txt"].every((p) => removed().includes(p)),
 					10_000,
 					"tree_update removing every file under the deleted directory",
 				);
 
-				await vscode.workspace.fs.rename(vscode.Uri.joinPath(folder.uri, "old"), vscode.Uri.joinPath(folder.uri, "new"));
+				await vscode.workspace.fs.rename(workspaceUri("old"), workspaceUri("new"));
 				await waitFor(
 					() => removed().includes("old/c.txt") && added().includes("new/c.txt"),
 					10_000,
 					"tree_update moving old/c.txt to new/c.txt",
 				);
-			} finally {
-				ws.close();
-			}
+			});
 		} finally {
-			await vscode.commands.executeCommand("sourcebeam.stop");
-			for (const dir of ["gone", "old", "new"]) {
-				await vscode.workspace.fs.delete(vscode.Uri.joinPath(folder.uri, dir), { recursive: true }).then(
-					() => undefined,
-					() => undefined,
+			for (const rel of ["gone", "old", "new"]) await removeQuietly(rel);
+		}
+	});
+
+	// A terminal `rm -rf` or a git checkout changes the disk behind the editor's back: the change
+	// arrives through the file watcher rather than through the editor's own file operations.
+	test("directory deleted outside the editor: files under it leave the server", async () => {
+		await writeText("scratch/a.txt", "a\n");
+		await writeText("scratch/deep/b.txt", "b\n");
+		try {
+			await withLiveViewer("ext-del", ["scratch/a.txt", "scratch/deep/b.txt"], async ({ removed }) => {
+				rmSync(workspaceUri("scratch").fsPath, { recursive: true, force: true });
+				await waitFor(
+					() => ["scratch/a.txt", "scratch/deep/b.txt"].every((p) => removed().includes(p)),
+					10_000,
+					"tree_update removing every file under the externally deleted directory",
 				);
+			});
+		} finally {
+			await removeQuietly("scratch");
+		}
+	});
+
+	// A symlink committed by accident (`notes -> ~/.ssh`) must not leak what it points at — neither
+	// when it's there from the start nor when it appears mid-broadcast.
+	test("symlinks pointing outside the workspace are never sent", async () => {
+		const outside = mkdtempSync(path.join(tmpdir(), "sourcebeam-outside-"));
+		writeFileSync(path.join(outside, "secret.txt"), "outside the workspace\n");
+		const root = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
+		symlinkSync(path.join(outside, "secret.txt"), path.join(root, "link-file.txt"));
+		symlinkSync(outside, path.join(root, "link-dir"));
+		const leaked = (paths: string[]) => paths.filter((p) => p.startsWith("link-") || p.startsWith("live-link-"));
+		try {
+			await withLiveViewer("link", ["README.md"], async (viewer) => {
+				const tree = expectMessage<{ type: "tree"; paths: string[] }>(viewer.messages, (m) => m.type === "tree");
+				assert.deepEqual(leaked(tree.paths), [], "the snapshot must skip symlinked files and directories");
+
+				symlinkSync(path.join(outside, "secret.txt"), path.join(root, "live-link-file.txt"));
+				symlinkSync(outside, path.join(root, "live-link-dir"));
+				await afterSentinel(viewer, "after-links.txt");
+				assert.deepEqual(leaked(viewer.added()), [], "symlinks created mid-broadcast must not be sent");
+			});
+		} finally {
+			for (const rel of ["link-file.txt", "link-dir", "live-link-file.txt", "live-link-dir", "after-links.txt"]) {
+				rmSync(path.join(root, rel), { force: true });
 			}
+			rmSync(outside, { recursive: true, force: true });
+		}
+	});
+
+	test("ignored paths stay off the server when created mid-broadcast", async () => {
+		try {
+			await withLiveViewer("ign-live", ["README.md"], async (viewer) => {
+				await writeText("node_modules/live.js", "ignored by .gitignore\n");
+				await writeText(".env", "SECRET=still-nope\n");
+				await writeText(".git/live-ref", "never sent\n");
+				await afterSentinel(viewer, "after-ignored.txt");
+				const leaked = viewer.added().filter((p) => p.startsWith("node_modules/") || p === ".env" || p.startsWith(".git/"));
+				assert.deepEqual(leaked, [], "ignored paths must not be sent");
+			});
+		} finally {
+			for (const rel of ["node_modules/live.js", ".git/live-ref", "after-ignored.txt"]) await removeQuietly(rel);
+			await writeText(".env", "SECRET=nope\n");
+		}
+	});
+
+	test("a file that turns binary or outgrows the size cap leaves the server, and returns as text", async () => {
+		try {
+			await withLiveViewer("shape", ["README.md"], async ({ added, removed }) => {
+				const count = (list: string[]) => list.filter((p) => p === "shape.txt").length;
+				await writeText("shape.txt", "text\n");
+				await waitFor(() => count(added()) === 1, 10_000, "shape.txt added as text");
+
+				await vscode.workspace.fs.writeFile(workspaceUri("shape.txt"), new Uint8Array([0x00, 0x01, 0x02, 0xff]));
+				await waitFor(() => count(removed()) === 1, 10_000, "shape.txt removed once it is binary");
+
+				await writeText("shape.txt", "text again\n");
+				await waitFor(() => count(added()) === 2, 10_000, "shape.txt back once it is text again");
+
+				await writeText("shape.txt", "x".repeat(600 * 1024));
+				await waitFor(() => count(removed()) === 2, 10_000, "shape.txt removed once it outgrows the cap");
+			});
+		} finally {
+			await removeQuietly("shape.txt");
+		}
+	});
+
+	// Slow, and not because of the extension: under wrangler dev the close event takes ~10 s to fire in Node
+	// (the client waits out its closing handshake), though the 4001 frame itself arrives at once.
+	test("revoke invites: connected viewers are disconnected", async () => {
+		const infos = stub("showInformationMessage", () => undefined);
+		try {
+			await withLiveViewer("revoke", ["README.md"], async ({ ws }) => {
+				const closed = new Promise<number>((resolve) => ws.addEventListener("close", (ev) => resolve((ev as CloseEvent).code)));
+				await vscode.commands.executeCommand("sourcebeam.revokeInvites");
+				assert.equal(await closed, 4001, "the viewer is closed with 4001");
+				assert.ok(infos.calls.some((c) => String(c[0]).includes("revoked")), "the host is told the links were revoked");
+			});
+		} finally {
+			infos.restore();
+		}
+	});
+
+	test("another host taking the project over stops this one", async () => {
+		const warnings = stub("showWarningMessage", () => undefined);
+		try {
+			await withLiveViewer("takeover", ["README.md"], async ({ project }) => {
+				const rival = new WebSocket(`ws://localhost:4173/ws/${project}`, { headers: { Authorization: "Bearer dev-host" } });
+				try {
+					await waitFor(
+						() => warnings.calls.some((c) => String(c[0]).includes("another host connected")),
+						10_000,
+						"the takeover warning",
+					);
+				} finally {
+					rival.close();
+				}
+			});
+		} finally {
+			warnings.restore();
+		}
+	});
+
+	test("a project with more broadcastable files than the cap refuses to start", async () => {
+		const project = uniqueProjectId("many");
+		await setConfig(project);
+		for (let i = 0; i <= 500; i++) await writeText(`many/f-${i}.txt`, `${i}\n`);
+		const errors = stub("showErrorMessage", () => undefined);
+		try {
+			await vscode.commands.executeCommand("sourcebeam.start");
+			await waitFor(() => errors.calls.length > 0, 15_000, "the too-many-files error");
+			assert.match(String(errors.calls[0]![0]), /more than 500 files/);
+		} finally {
+			errors.restore();
+			await vscode.commands.executeCommand("sourcebeam.stop");
+			await removeQuietly("many");
 		}
 	});
 

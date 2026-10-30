@@ -88,6 +88,11 @@ class BroadcastService(private val project: Project) : Disposable {
 	// the life of a run) — no @Volatile needed, same as loop()'s own `delay` local.
 	private var consecutiveFailures = 0
 
+	/** Whether this run has been live at least once: a failed first connect is a setup problem to
+	 * report and stop on, a failed reconnect after a drop is an outage to retry through. */
+	@Volatile
+	private var wentLive = false
+
 	@Volatile
 	var status: BroadcastStatus = BroadcastStatus.OFF
 		private set
@@ -108,6 +113,19 @@ class BroadcastService(private val project: Project) : Disposable {
 
 	val isRunning: Boolean get() = running
 
+	/** Connected: what invite/revoke/delete need, not just a started broadcast. */
+	val isLive: Boolean get() = running && status == BroadcastStatus.LIVE
+
+	/** Says why invite/revoke/delete can't run yet; true when they can. */
+	fun requireLive(): Boolean {
+		if (isLive) return true
+		notify(
+			if (running) "Not connected to the server yet — wait until the broadcast is live." else "Start broadcasting first.",
+			NotificationType.INFORMATION,
+		)
+		return false
+	}
+
 	// --- lifecycle ---------------------------------------------------------
 
 	fun start() {
@@ -122,6 +140,7 @@ class BroadcastService(private val project: Project) : Disposable {
 		running = true
 		stopping = false
 		consecutiveFailures = 0
+		wentLive = false
 
 		val projectRoot = project.baseDirectory()
 		if (projectRoot == null) {
@@ -205,10 +224,16 @@ class BroadcastService(private val project: Project) : Disposable {
 		while (generation.get() == myGen) {
 			val shouldContinue = runOnce(cfg, myGen)
 			if (!shouldContinue) {
-				if (generation.get() == myGen) running = false
+				// Gave up for good (rejected token, project gone, taken over): release the VFS
+				// listener and coalescer too, not just `running` — stop() is a no-op once that is false.
+				if (generation.get() == myGen) stop()
 				return
 			}
 			if (generation.get() != myGen) break
+			// A connection that went live and then dropped is a new outage, not one more failed
+			// attempt in a row: start over from the shortest backoff, as the viewer page does.
+			// Otherwise every drop over a long session doubled the wait until each one cost the full 30 s.
+			if (status == BroadcastStatus.LIVE) delay = RECONNECT_MIN_MS
 			setStatus(BroadcastStatus.RECONNECTING)
 			log.info("reconnecting in ${delay / 1000.0}s")
 			consecutiveFailures++
@@ -238,6 +263,15 @@ class BroadcastService(private val project: Project) : Disposable {
 			return false
 		} catch (e: Exception) {
 			log.warn("connection failed (${e.message})")
+			if (!wentLive) {
+				notify(
+					"Can't connect to ${cfg.server} (${e.message}). Check the server URL in " +
+						"Settings | Tools | Sourcebeam and that the server is up.",
+					NotificationType.ERROR,
+				)
+				setStatus(BroadcastStatus.OFF)
+				return false
+			}
 			return true
 		}
 
@@ -249,6 +283,7 @@ class BroadcastService(private val project: Project) : Disposable {
 		}
 
 		connection = conn
+		wentLive = true
 		setStatus(BroadcastStatus.LIVE)
 		consecutiveFailures = 0
 		policy = readPolicy(conn)

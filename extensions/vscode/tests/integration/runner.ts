@@ -8,18 +8,18 @@
 // CommonJS (tsconfig.json in this folder) before runTests() is invoked below.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runTests } from "@vscode/test-electron";
+import { downloadAndUnzipVSCode, resolveCliPathFromVSCodeExecutablePath, runTests } from "@vscode/test-electron";
 
 const extensionDevelopmentPath = path.resolve(import.meta.dir, "../..");
 const integrationDir = path.resolve(import.meta.dir);
 const extensionTestsPath = path.join(integrationDir, "out", "suite", "index.js");
 
-function run(cmd: string[], cwd: string): void {
+function run(cmd: string[], cwd: string, env?: Record<string, string>): void {
 	const [bin, ...args] = cmd;
-	const result = spawnSync(bin!, args, { cwd, stdio: "inherit" });
+	const result = spawnSync(bin!, args, { cwd, stdio: "inherit", env: { ...process.env, ...env } });
 	if (result.status !== 0) {
 		throw new Error(`command failed (${result.status}): ${cmd.join(" ")}`);
 	}
@@ -39,7 +39,8 @@ async function checkServerUp(): Promise<void> {
 }
 
 /** Fixture workspace: files that should sync (src/main.py, README.md) next to ones that must
- * not (node_modules/junk.js excluded via .gitignore, .env excluded by core.ts's hardcoded rule).
+ * not (node_modules/junk.js and .env excluded via .gitignore, .git/ always, a binary and an
+ * oversized file by the policy).
  *
  * node_modules also gets pushed past MAX_FILES (500, see core.ts) on its own — regression
  * coverage for a bug where the cap was checked against the *raw* findFiles scan instead of the
@@ -60,7 +61,68 @@ function makeWorkspace(): string {
 	writeFileSync(path.join(dir, ".env"), "SECRET=nope\n");
 	writeFileSync(path.join(dir, ".prettierrc"), '{ "semi": false }\n');
 	writeFileSync(path.join(dir, ".gitignore"), "node_modules/\n.env\n");
+	// Never sent, whatever .gitignore says: .git/ is blocked outright, binaries and files over the
+	// server's size cap (512 KiB) are skipped by the policy.
+	mkdirSync(path.join(dir, ".git"), { recursive: true });
+	writeFileSync(path.join(dir, ".git", "config"), "[core]\n");
+	writeFileSync(path.join(dir, "image.bin"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02]));
+	writeFileSync(path.join(dir, "big.txt"), "x".repeat(600 * 1024));
 	return dir;
+}
+
+/** The same suite entry point again, in Restricted Mode. What differs from runTests():
+ * - runTests() always passes --disable-workspace-trust, so this launches VS Code itself, with a
+ *   fresh profile (no earlier trust decision leaks in) and startupPrompt "never" so the folder
+ *   opens untrusted instead of behind a modal;
+ * - VS Code never disables an extension under development, whatever the workspace trust, so the
+ *   extension is packaged and installed like a user's copy, and --extensionDevelopmentPath points
+ *   at an empty stub only because the test runner can't load without one;
+ * - the compiled suite is copied into the installed extension: `require("vscode")` hands each
+ *   extension its own API object by file path, and helpers.ts's stubs of vscode.window only
+ *   reach the extension when the tests share its object;
+ * - no --disable-extensions, which would switch the installed copy off as well.
+ * SOURCEBEAM_IT_UNTRUSTED makes suite/index.ts load only untrusted.test.js. */
+function runUntrusted(vscodeExecutablePath: string, workspaceDir: string): void {
+	const root = path.join(extensionDevelopmentPath, ".vscode-test", "untrusted");
+	const userDataDir = path.join(root, "user-data");
+	const extensionsDir = path.join(root, "extensions");
+	const stubDir = path.join(root, "stub");
+	const vsix = path.join(root, "sourcebeam.vsix");
+	rmSync(root, { recursive: true, force: true });
+	mkdirSync(path.join(userDataDir, "User"), { recursive: true });
+	mkdirSync(stubDir, { recursive: true });
+	writeFileSync(
+		path.join(userDataDir, "User", "settings.json"),
+		JSON.stringify({ "security.workspace.trust.startupPrompt": "never" }),
+	);
+	const profile = [`--extensions-dir=${extensionsDir}`, `--user-data-dir=${userDataDir}`];
+
+	run(["bunx", "@vscode/vsce", "package", "--no-dependencies", "--out", vsix], extensionDevelopmentPath);
+	run(
+		[resolveCliPathFromVSCodeExecutablePath(vscodeExecutablePath), ...profile, "--install-extension", vsix],
+		extensionDevelopmentPath,
+	);
+	const installed = readdirSync(extensionsDir).find((name) => name.startsWith("krowten.sourcebeam-vscode-"));
+	if (!installed) throw new Error(`the packaged extension did not install into ${extensionsDir}`);
+	const suiteCopy = path.join(extensionsDir, installed, "integration-tests");
+	cpSync(path.join(integrationDir, "out"), suiteCopy, { recursive: true });
+	run(
+		[
+			vscodeExecutablePath,
+			workspaceDir,
+			"--no-sandbox",
+			"--disable-gpu-sandbox",
+			"--disable-updates",
+			"--skip-welcome",
+			"--skip-release-notes",
+			"--no-cached-data",
+			`--extensionTestsPath=${path.join(suiteCopy, "suite", "index.js")}`,
+			`--extensionDevelopmentPath=${stubDir}`,
+			...profile,
+		],
+		extensionDevelopmentPath,
+		{ SOURCEBEAM_IT_UNTRUSTED: "1" },
+	);
 }
 
 async function main(): Promise<void> {
@@ -72,15 +134,25 @@ async function main(): Promise<void> {
 	console.log("Compiling integration test suite (tsc)...");
 	run(["bunx", "tsc", "-p", path.join(integrationDir, "tsconfig.json")], extensionDevelopmentPath);
 
+	const vscodeExecutablePath = await downloadAndUnzipVSCode();
 	const workspaceDir = makeWorkspace();
 	try {
 		await runTests({
+			vscodeExecutablePath,
 			extensionDevelopmentPath,
 			extensionTestsPath,
 			launchArgs: [workspaceDir, "--disable-extensions"],
 		});
 	} finally {
 		rmSync(workspaceDir, { recursive: true, force: true });
+	}
+
+	console.log("Running the Restricted Mode suite (untrusted workspace)...");
+	const untrustedDir = makeWorkspace();
+	try {
+		runUntrusted(vscodeExecutablePath, untrustedDir);
+	} finally {
+		rmSync(untrustedDir, { recursive: true, force: true });
 	}
 }
 

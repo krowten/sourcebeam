@@ -27,7 +27,8 @@ function buildRows(state: SidebarState): Row[] {
 		state.running
 			? { label: "Stop Broadcasting", icon: "debug-stop", command: "sourcebeam.stop" }
 			: { label: "Start Broadcasting", icon: "play", command: "sourcebeam.start" },
-		{ label: "Copy Invite Link", icon: "link", command: "sourcebeam.copyInvite" },
+		// Only once connected: before that there is nothing to mint an invite from.
+		...(state.status === "live" ? [{ label: "Copy Invite Link", icon: "link", command: "sourcebeam.copyInvite" }] : []),
 		{ label: "Settings…", icon: "settings-gear", command: "sourcebeam.moreActions" },
 	];
 }

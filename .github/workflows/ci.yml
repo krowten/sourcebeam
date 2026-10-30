@@ -24,13 +24,17 @@ jobs:
         id: filter
         with:
           filters: |
+            # Both hosts' integration suites run against the real Worker, so a server change
+            # can break them too.
             jetbrains:
               - 'extensions/jetbrains/**'
               - 'packages/protocol/**'
+              - 'apps/web/**'
               - '.github/workflows/ci.yml'
             vscode:
               - 'extensions/vscode/**'
               - 'packages/protocol/**'
+              - 'apps/web/**'
               - '.github/workflows/ci.yml'
 
   unit:
@@ -63,9 +67,17 @@ jobs:
     needs: changes
     if: needs.changes.outputs.jetbrains == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Cache bun install
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -83,6 +95,15 @@ jobs:
       # every push. That's also where the installable zip gets built and published, so CI here
       # never downloads a full IDE distribution just to throw the result away.
       - run: ./gradlew test --no-daemon
+        working-directory: extensions/jetbrains
+      # The integration suite talks to a real Worker, the same one the VS Code suite uses.
+      - run: bun install
+      - run: bun run --cwd apps/web build
+      - name: Start local Worker
+        run: bun run --cwd apps/web preview &
+      - name: Wait for the Worker
+        run: timeout 90 bash -c 'until curl -sf -o /dev/null http://localhost:4173/; do sleep 1; done'
+      - run: ./gradlew test -Pintegration --no-daemon
         working-directory: extensions/jetbrains
 
   e2e:

@@ -63,8 +63,12 @@ The JetBrains plugin builds separately, with JDK 21:
 ```sh
 cd extensions/jetbrains
 ./gradlew test          # policy, gitignore matching, JSON codec
+./gradlew test -Pintegration   # headless IDE against the local Worker on :4173
 ./gradlew buildPlugin   # installable zip in build/distributions/
 ./gradlew runIde        # sandboxed IDE with the plugin loaded
 ```
 
-CI runs all of these; the VS Code integration suite runs under `xvfb-run`.
+Both integration suites need the local Worker running (`bun run --cwd apps/web build && bun run
+--cwd apps/web preview`) and share one list of scenarios under the same test names — a behaviour
+change in one host comes with the matching test in the other. CI runs all of these; the VS Code
+integration suite runs under `xvfb-run`.

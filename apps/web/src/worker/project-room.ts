@@ -176,9 +176,12 @@ export class ProjectRoom extends DurableObject<Env> {
 		}
 	}
 
-	async webSocketClose() {
-		// no-op: attachment (role/subscribedPath/errors) dies with the socket,
-		// there is no server-side state that needs releasing on disconnect.
+	async webSocketClose(ws: WebSocket) {
+		// Completes a client-initiated close: hibernatable sockets don't get the runtime's
+		// automatic Close reply (web_socket_auto_reply_to_close), so without this the client
+		// waits until the DO hibernates. No code echoed: close(1005/1006) would throw.
+		// A no-op once the socket is already CLOSED (our own close() was answered).
+		ws.close();
 	}
 
 	/**

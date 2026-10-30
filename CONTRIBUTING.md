@@ -25,7 +25,14 @@ bun run --cwd apps/web test:e2e                    # Playwright against a real w
 bun run --cwd extensions/vscode test               # extension unit tests
 bun run --cwd extensions/vscode test:integration   # real VS Code host; needs a display
 cd extensions/jetbrains && ./gradlew test          # Kotlin policy/ignore/codec tests
+cd extensions/jetbrains && ./gradlew test -Pintegration   # headless IDE against a real server
 ```
+
+Both integration suites talk to a local Worker: start it first with
+`bun run --cwd apps/web build && bun run --cwd apps/web preview` (port 4173). They cover the
+same scenarios under the same names (`extensions/vscode/tests/integration/suite/extension.test.ts`
+and `extensions/jetbrains/src/test/kotlin/.../integration/BroadcastIntegrationTest.kt`), so a
+behaviour change in one host lands with the matching test in the other.
 
 Use the package scripts rather than retyping the commands they contain. Several carry flags
 that matter; the VS Code `test` script, for one, excludes `tests/integration/**`, which
@@ -98,8 +105,10 @@ VS Code version bundling Node 22.
 
 The code splits into platform-free logic (`Policy.kt`, `Ignore.kt`, `Json.kt`,
 `Coalescer.kt`, `Ws.kt`) and the IDE integration (`BroadcastService.kt`, `Actions.kt`, the
-settings, status bar and tool window). Only the first half is unit-tested. It is also the
-half that has to stay byte-compatible with `packages/protocol`.
+settings, status bar and tool window). The first half is unit-tested and has to stay
+byte-compatible with `packages/protocol`; the second is covered by the integration suite, which
+runs the plugin in a headless IDE (`HeavyPlatformTestCase`) with a real project directory
+against a real server.
 
 `src/main/kotlin/.../ToolWindow.kt` is the Activity Bar counterpart of the VS Code
 extension's sidebar (View | Tool Windows | Sourcebeam): a `SimpleToolWindowPanel` whose
@@ -144,6 +153,7 @@ was nothing to gate — no `isTrusted()` check appears anywhere in this codebase
 ```sh
 cd extensions/jetbrains
 ./gradlew test          # pure-logic unit tests: policy, gitignore matching, JSON codec
+./gradlew test -Pintegration   # the plugin in a headless IDE against the local Worker on :4173
 ./gradlew buildPlugin   # the installable zip
 ./gradlew runIde        # sandboxed IDE with the plugin
 ./gradlew verifyPlugin  # JetBrains' compatibility checks (downloads IDEs, slow)

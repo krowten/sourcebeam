@@ -210,6 +210,15 @@ describe('ProjectRoom', () => {
 		expect((await viewerClosed).code).toBe(4001);
 	});
 
+	test('a client-initiated close is answered with a Close frame', async () => {
+		const host = await connect('client-close', { host: 'valid-host' });
+		await host.next(); // policy
+		const closed = host.waitClose();
+		host.ws.close(1000, 'bye');
+		// The client's close event only fires once the server's reply arrives.
+		await closed;
+	});
+
 	test('a reply to a viewer that closed while its message was being handled does not throw', async () => {
 		const host = await connect('closed-reply', { host: 'valid-host' });
 		await host.next(); // policy

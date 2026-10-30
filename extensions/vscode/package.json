@@ -2,7 +2,7 @@
   "name": "sourcebeam-vscode",
   "displayName": "Sourcebeam: Live Code Sharing",
   "description": "Live code sharing without the screen share: broadcast your project to a read-only browser viewer for teaching, mentoring, code walkthroughs and pair programming.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "krowten",
   "author": {
     "name": "krowten",
@@ -124,12 +124,12 @@
         },
         {
           "command": "sourcebeam.copyInvite",
-          "when": "view == sourcebeam.view",
+          "when": "view == sourcebeam.view && sourcebeam.live",
           "group": "navigation@2"
         },
         {
           "command": "sourcebeam.revokeInvites",
-          "when": "view == sourcebeam.view",
+          "when": "view == sourcebeam.view && sourcebeam.live",
           "group": "navigation@3"
         },
         {

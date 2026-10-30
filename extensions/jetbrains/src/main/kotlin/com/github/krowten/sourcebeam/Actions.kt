@@ -115,10 +115,7 @@ class CopyInviteLinkAction : SourcebeamAction() {
 	override fun actionPerformed(e: AnActionEvent) {
 		val project = e.getData(CommonDataKeys.PROJECT) ?: return
 		val service = BroadcastService.getInstance(project)
-		if (!service.isRunning) {
-			service.notify("Start broadcasting first.", NotificationType.INFORMATION)
-			return
-		}
+		if (!service.requireLive()) return
 		runOffEdt(project) {
 			try {
 				val url = service.mintInvite()
@@ -135,7 +132,7 @@ class CopyInviteLinkAction : SourcebeamAction() {
 
 	override fun update(e: AnActionEvent) {
 		super.update(e)
-		e.presentation.isEnabled = service(e)?.isRunning == true
+		e.presentation.isEnabled = service(e)?.isLive == true
 	}
 }
 
@@ -143,10 +140,7 @@ class RevokeInvitesAction : SourcebeamAction() {
 	override fun actionPerformed(e: AnActionEvent) {
 		val project = e.getData(CommonDataKeys.PROJECT) ?: return
 		val service = BroadcastService.getInstance(project)
-		if (!service.isRunning) {
-			service.notify("Start broadcasting first.", NotificationType.INFORMATION)
-			return
-		}
+		if (!service.requireLive()) return
 		runOffEdt(project) {
 			try {
 				service.revokeInvites()
@@ -159,7 +153,7 @@ class RevokeInvitesAction : SourcebeamAction() {
 
 	override fun update(e: AnActionEvent) {
 		super.update(e)
-		e.presentation.isEnabled = service(e)?.isRunning == true
+		e.presentation.isEnabled = service(e)?.isLive == true
 	}
 }
 
@@ -169,10 +163,7 @@ class DeleteProjectAction : SourcebeamAction() {
 	override fun actionPerformed(e: AnActionEvent) {
 		val project = e.getData(CommonDataKeys.PROJECT) ?: return
 		val service = BroadcastService.getInstance(project)
-		if (!service.isRunning) {
-			service.notify("Start broadcasting first.", NotificationType.INFORMATION)
-			return
-		}
+		if (!service.requireLive()) return
 		val confirmed = Messages.showYesNoDialog(
 			project,
 			"Delete the project on the server? This cannot be undone, and every viewer is disconnected.",
@@ -194,7 +185,7 @@ class DeleteProjectAction : SourcebeamAction() {
 
 	override fun update(e: AnActionEvent) {
 		super.update(e)
-		e.presentation.isEnabled = service(e)?.isRunning == true
+		e.presentation.isEnabled = service(e)?.isLive == true
 	}
 }
 

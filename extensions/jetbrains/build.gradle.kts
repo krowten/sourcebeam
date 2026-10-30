@@ -26,6 +26,9 @@ dependencies {
 			providers.gradleProperty("platformVersion"),
 		)
 		testFramework(TestFrameworkType.Platform)
+		// Unified IntelliJ IDEA (2025.3+) can't open a test project without its ultimate module on
+		// the test classpath — the same line JetBrains' own plugin template carries.
+		testBundledPlugins("com.intellij.modules.ultimate")
 	}
 	// kotlin.stdlib.default.dependency=false: the platform ships its own stdlib, and bundling a
 	// second copy is the classic source of "class file version" conflicts at runtime.
@@ -49,6 +52,23 @@ intellijPlatform {
 		version = providers.gradleProperty("pluginVersion")
 		changeNotes =
 			"""
+			<h3>0.1.5</h3>
+			<ul>
+				<li>Starting a broadcast against a server that can't be reached, or that isn't a
+				Sourcebeam server (an HTTP 404 and the like), now stops it with an error naming the
+				address and the reason, instead of retrying silently.</li>
+				<li>Copy Invite Link, Revoke Invite Links and Delete Project are enabled only once the
+				broadcast is connected. Before, Copy Invite Link could report "Failed to get an invite
+				— Start broadcasting first." while broadcasting was on.</li>
+				<li>After a connection that was live drops, reconnecting starts again from the
+				shortest wait. Before, every drop in a long session waited longer than the last, up
+				to 30 s.</li>
+				<li>A broadcast that gives up (rejected token, project taken over) releases its file
+				listener.</li>
+				<li>Server update (<code>bun run deploy</code>): a viewer's tab shows "no access" right
+				away when you revoke invite links, and closing a connection from the client side no
+				longer takes ~10 s.</li>
+			</ul>
 			<h3>0.1.4</h3>
 			<ul>
 				<li>Renaming or moving a folder while broadcasting now updates the viewer: the files
@@ -133,5 +153,14 @@ tasks {
 	}
 	test {
 		useJUnit()
+		// The plugin against a real server (src/test/.../integration) needs the local preview server
+		// on :4173 (`bun run --cwd apps/web preview`): `./gradlew test -Pintegration` runs only those,
+		// plain `./gradlew test` everything else. One task rather than a separate testIde one, so the
+		// sandbox the tests load the plugin from is always rebuilt from the current sources.
+		if (providers.gradleProperty("integration").isPresent) {
+			filter { includeTestsMatching("com.github.krowten.sourcebeam.integration.*") }
+		} else {
+			exclude("com/github/krowten/sourcebeam/integration/**")
+		}
 	}
 }

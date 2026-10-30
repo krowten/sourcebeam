@@ -78,6 +78,11 @@ let activePolicy: FilePolicy = DEFAULT_POLICY;
 let ignoreMatcher: ((relPath: string) => boolean) | null = null;
 let coalescer: Coalescer | null = null;
 let snapshotting = false;
+/** Whether this run has been live at least once: a failed first connect is a setup problem to
+ * report and stop on, a failed reconnect after a drop is an outage to retry through. */
+let wentLive = false;
+let consecutiveFailures = 0;
+const UNREACHABLE_WARNING_THRESHOLD = 3;
 /** Paths currently mirrored on the server — lets a directory delete fan out to its files. */
 const sent = new Set<string>();
 let backoffAbort: AbortController | null = null;
@@ -104,6 +109,8 @@ function log(level: "INFO" | "WARN" | "ERROR", message: string): void {
 
 function setStatus(status: Status): void {
 	currentStatus = status;
+	// Gates Copy Invite / Revoke in the view title (package.json's view/title `when`).
+	void vscode.commands.executeCommand("setContext", "sourcebeam.live", status === "live");
 	sidebarRefresh?.();
 	if (settingsPanel && extContext) void postSettingsPanelState(extContext);
 	if (sidebarView) sidebarView.badge = badgeFor(status);
@@ -484,6 +491,10 @@ function connectWs(url: string, token: string): Promise<Conn> {
 			const status = await probeHandshakeStatus(url, token);
 			if (status === 403) {
 				reject(fatalError("Server rejected the connection: HTTP 403 (invalid host token). Set it via \"Sourcebeam: Set Host Token\" — retrying will not help."));
+			} else if (status !== null && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+				// A 404 & co. means this URL isn't a Sourcebeam server (or the project id is invalid):
+				// retrying won't change the answer.
+				reject(fatalError(`Server answered HTTP ${status} — check sourcebeam.serverUrl and the project id.`));
 			} else {
 				reject(new Error(`websocket handshake failed${status ? ` (status ${status})` : ""}`));
 			}
@@ -528,11 +539,23 @@ async function runOnce(cfg: Config, folder: vscode.WorkspaceFolder, myGen: numbe
 	} catch (err) {
 		if (isFatalError(err)) {
 			log("ERROR", errDetail(err));
-			vscode.window.showErrorMessage("Sourcebeam: server returned 403 — check your host token.");
+			vscode.window.showErrorMessage(`Sourcebeam: ${errDetail(err)}`);
 			setStatus("off");
 			return false;
 		}
 		log("WARN", `connection failed (${errDetail(err)})`);
+		if (!wentLive) {
+			vscode.window.showErrorMessage(
+				`Sourcebeam: can't connect to ${cfg.server} (${errDetail(err)}). Check sourcebeam.serverUrl and that the server is up.`,
+			);
+			setStatus("off");
+			return false;
+		}
+		if (++consecutiveFailures === UNREACHABLE_WARNING_THRESHOLD) {
+			vscode.window.showWarningMessage(
+				`Sourcebeam: can't reach the server after ${UNREACHABLE_WARNING_THRESHOLD} attempts — check sourcebeam.serverUrl. Still retrying.`,
+			);
+		}
 		return true;
 	}
 
@@ -545,6 +568,8 @@ async function runOnce(cfg: Config, folder: vscode.WorkspaceFolder, myGen: numbe
 	}
 
 	activeConn = conn;
+	wentLive = true;
+	consecutiveFailures = 0;
 	setStatus("live");
 	activePolicy = await readPolicy(conn);
 
@@ -617,11 +642,17 @@ async function loop(cfg: Config, folder: vscode.WorkspaceFolder, myGen: number):
 		const shouldContinue = await runOnce(cfg, folder, myGen);
 		if (!shouldContinue) {
 			// gen!==myGen here means runOnce bailed out because it went stale (stop→start),
-			// not because it actually finished — the newer cycle owns `running` now, don't touch it.
-			if (gen === myGen) running = false;
+			// not because it actually finished — the newer cycle owns the state now, don't touch it.
+			// Otherwise it gave up for good (rejected token, project gone, taken over): tear down the
+			// watchers and coalescer too, not just `running` — `stop` is a no-op once that is false.
+			if (gen === myGen) stopBroadcasting();
 			return;
 		}
 		if (gen !== myGen) break;
+		// A connection that went live and then dropped is a new outage, not one more failed attempt
+		// in a row: start over from the shortest backoff, as the viewer page does. Otherwise every
+		// drop over a long session doubled the wait until each one cost the full 30 s.
+		if (currentStatus === "live") delay = RECONNECT_MIN_MS;
 		setStatus("reconnecting");
 		log("INFO", `reconnecting in ${(delay / 1000).toFixed(1)}s`);
 		backoffAbort = new AbortController();
@@ -650,6 +681,8 @@ async function startBroadcasting(ctx: vscode.ExtensionContext): Promise<void> {
 	// setting up a second FileSystemWatcher/coalescer that orphans the first one's timers.
 	running = true;
 	stopping = false;
+	wentLive = false;
+	consecutiveFailures = 0;
 	sidebarRefresh?.();
 
 	const folder = vscode.workspace.workspaceFolders?.[0];
@@ -818,7 +851,8 @@ async function buildSettingsPanelState(ctx: vscode.ExtensionContext): Promise<Se
 		hasToken,
 		workspaceOpen: !!folder,
 		workspaceName: folder?.name ?? "",
-		running,
+		// Revoke/Delete need a live connection, not just a started broadcast.
+		running: currentStatus === "live",
 	};
 }
 
@@ -922,12 +956,21 @@ async function openSettingsPanel(ctx: vscode.ExtensionContext): Promise<void> {
 	await postSettingsPanelState(ctx);
 }
 
+/** Invite/revoke/delete only make sense over a live connection; says why when there is none. */
+function requireLive(): { conn: Conn; cfg: Config } | null {
+	if (currentStatus === "live" && activeConn && activeConfig) return { conn: activeConn, cfg: activeConfig };
+	vscode.window.showInformationMessage(
+		running
+			? "Sourcebeam: not connected to the server yet — wait until the broadcast is live."
+			: "Sourcebeam: start broadcasting first (\"Sourcebeam: Start Broadcasting\").",
+	);
+	return null;
+}
+
 async function copyInvite(): Promise<void> {
-	if (!running || !activeConn || !activeConfig) {
-		vscode.window.showInformationMessage("Sourcebeam: start broadcasting first (\"Sourcebeam: Start Broadcasting\").");
-		return;
-	}
-	const conn = activeConn;
+	const live = requireLive();
+	if (!live) return;
+	const { conn, cfg } = live;
 	// Keep in sync with the `default` in package.json's contributes.configuration.
 	const ttlHours = inviteTtlHours();
 	try {
@@ -948,7 +991,7 @@ async function copyInvite(): Promise<void> {
 			};
 			conn.send(JSON.stringify({ type: "mint_invite", ttlSeconds: ttlHours * 3600 }));
 		});
-		const fullUrl = toHttpUrl(activeConfig.server).replace(/\/+$/, "") + invite.url;
+		const fullUrl = toHttpUrl(cfg.server).replace(/\/+$/, "") + invite.url;
 		await vscode.env.clipboard.writeText(fullUrl);
 		const expires = new Date(invite.expiresAt * 1000).toLocaleString();
 		vscode.window.showInformationMessage(`Sourcebeam: link copied to clipboard (can be opened until ${expires}).`);
@@ -958,11 +1001,9 @@ async function copyInvite(): Promise<void> {
 }
 
 async function revokeInvites(): Promise<void> {
-	if (!running || !activeConn) {
-		vscode.window.showInformationMessage("Sourcebeam: start broadcasting first (\"Sourcebeam: Start Broadcasting\").");
-		return;
-	}
-	const conn = activeConn;
+	const live = requireLive();
+	if (!live) return;
+	const { conn } = live;
 	try {
 		await new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => {
@@ -988,17 +1029,17 @@ async function revokeInvites(): Promise<void> {
 }
 
 async function deleteProject(): Promise<void> {
-	if (!running || !activeConn) {
-		vscode.window.showInformationMessage("Sourcebeam: start broadcasting first (\"Sourcebeam: Start Broadcasting\").");
-		return;
-	}
+	if (!requireLive()) return;
 	const confirm = await vscode.window.showWarningMessage(
 		"Sourcebeam: delete the project with no way to undo? All viewers will be disconnected.",
 		{ modal: true },
 		"Delete",
 	);
+	// The broadcast may have stopped or dropped while the modal was open.
 	if (confirm !== "Delete") return;
-	activeConn.send(JSON.stringify({ type: "delete_project" }));
+	const still = requireLive();
+	if (!still) return;
+	still.conn.send(JSON.stringify({ type: "delete_project" }));
 	stopBroadcasting();
 	vscode.window.showInformationMessage("Sourcebeam: project deleted.");
 }

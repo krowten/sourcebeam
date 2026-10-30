@@ -60,9 +60,31 @@ test('revoking invites cuts off an open tab: it says "no access", not "reconnect
 
 		await host.rotateViewSecret();
 
-		// No reload: the server closes the socket, the probe gets a 403, and the page settles.
+		// No reload: the server closes the socket with 4001, and the page settles.
 		await expect(page.getByTestId('invite-invalid')).toBeVisible();
 		await expect(page.getByTestId('status')).toHaveText('no access');
+	} finally {
+		host.close();
+	}
+});
+
+test('revoking invites cuts off a tab that has sent nothing yet without a delay', async ({
+	page
+}, testInfo) => {
+	const project = projectId(testInfo.testId);
+	const host = new FakeHost();
+	try {
+		await host.connect(BASE, project);
+		// Empty project: no file to open, so the tab never sends `subscribe`.
+		await page.goto(await host.mintInvite());
+		await expect(page.getByTestId('status')).toHaveText('live');
+
+		await host.rotateViewSecret();
+
+		// The 4001 close settles it at once, with no reconnect backoff or probe (those took up to
+		// ~1.3 s). A socket that never sent a frame used to stay open after the server's close
+		// until Chromium gave up 2 s later.
+		await expect(page.getByTestId('status')).toHaveText('no access', { timeout: 500 });
 	} finally {
 		host.close();
 	}

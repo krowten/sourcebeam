@@ -138,6 +138,11 @@ class WsConnection private constructor(
 							"Set it via \"Sourcebeam: Set Host Token\" — retrying will not help.",
 					)
 				}
+				if (status != null && status in 400..499 && status != 408 && status != 429) {
+					// A 404 & co. means this URL isn't a Sourcebeam server (or the project id is
+					// invalid): retrying won't change the answer.
+					throw FatalException("Server answered HTTP $status — check the server URL and the project id.")
+				}
 				throw RuntimeException("websocket handshake failed" + (status?.let { " (status $it)" } ?: ""), cause)
 			}
 

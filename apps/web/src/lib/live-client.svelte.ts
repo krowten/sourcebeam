@@ -169,6 +169,10 @@ export function createLiveClient(projectId: string): LiveClient {
 			attempt = 0;
 			status = 'live';
 			if (openPath) send({ type: 'subscribe', path: openPath });
+			// workerd#7566: a hibernatable socket whose client never sent a frame stays open ~10 s
+			// after the server closes it, so a revoke would surface late. The runtime answers
+			// PING itself, so this never wakes the room.
+			socket.send(PING);
 			startHeartbeat(socket);
 		});
 		socket.addEventListener('message', (ev) => {
@@ -178,11 +182,18 @@ export function createLiveClient(projectId: string): LiveClient {
 			const msg = parseJson(ev.data as string | ArrayBuffer);
 			if (msg) handleMessage(msg as ServerMessage);
 		});
-		socket.addEventListener('close', () => {
+		socket.addEventListener('close', (ev) => {
 			clearTimeout(handshakeTimer);
 			// An abandoned socket may still report its close much later.
 			if (closed || ws !== socket) return;
 			stopHeartbeat();
+			if (projectDeleted) return;
+			// 4001 is the room cutting this viewer off for good (invites revoked, session expired;
+			// a deleted or expired project sends project_deleted first): no reconnect, no probe.
+			if (ev.code === 4001) {
+				inviteInvalid = true;
+				return;
+			}
 			// Invite-only viewer without a valid cookie never gets past the HTTP upgrade (403):
 			// the socket closes/errors before any message (policy/tree) ever arrives. Same signal
 			// covers an invite revoked mid-session (server closes the *next* connect attempt before
@@ -195,7 +206,6 @@ export function createLiveClient(projectId: string): LiveClient {
 				void probeThenDecide();
 				return;
 			}
-			if (projectDeleted) return;
 			scheduleReconnect();
 		});
 		socket.addEventListener('error', () => socket.close());
